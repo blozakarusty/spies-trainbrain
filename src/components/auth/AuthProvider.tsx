@@ -34,7 +34,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         
-        if (event === 'SIGNED_IN') {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           // Don't redirect if already on the home page
           if (location.pathname !== '/') {
             navigate('/');
@@ -49,6 +49,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     );
 
+    // Handle hash fragments for auth in URL
+    const handleAuthInUrl = async () => {
+      const hasAuthParams = window.location.hash && 
+        (window.location.hash.includes('access_token=') || 
+         window.location.hash.includes('refresh_token=') ||
+         window.location.hash.includes('type=recovery'));
+         
+      if (hasAuthParams) {
+        // Let the auth system process the tokens from the URL
+        // This will trigger onAuthStateChange event above
+        const { data, error } = await supabase.auth.getUser();
+        if (error) {
+          console.error("Error processing auth URL parameters:", error);
+        } else if (data.user) {
+          console.log("User authenticated from URL params:", data.user.email);
+        }
+      }
+    };
+
     // Check for existing session
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
@@ -61,6 +80,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         navigate('/');
       }
       
+      handleAuthInUrl();
       setIsLoading(false);
     });
 
