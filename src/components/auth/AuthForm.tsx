@@ -14,6 +14,9 @@ export const AuthForm = () => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [showOTP, setShowOTP] = useState(false);
   const [otp, setOtp] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,7 +28,7 @@ export const AuthForm = () => {
           email,
           password,
           options: {
-            // Don't redirect - handle in UI instead
+            // Use the current window's origin as the redirect URL
             emailRedirectTo: window.location.origin,
           }
         });
@@ -41,6 +44,60 @@ export const AuthForm = () => {
           password,
         });
         if (error) throw error;
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    
+    try {
+      if (!showResetPassword) {
+        // Send password reset email
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + '/auth',
+        });
+        
+        if (error) throw error;
+        
+        toast({
+          title: "Check your email",
+          description: "We've sent you a password reset link.",
+        });
+      } else {
+        // Reset password with new password
+        if (newPassword !== confirmPassword) {
+          throw new Error("Passwords don't match.");
+        }
+        
+        if (newPassword.length < 6) {
+          throw new Error("Password must be at least 6 characters.");
+        }
+        
+        const { error } = await supabase.auth.updateUser({
+          password: newPassword
+        });
+        
+        if (error) throw error;
+        
+        toast({
+          title: "Success!",
+          description: "Your password has been updated.",
+        });
+        
+        // Reset form
+        setShowResetPassword(false);
+        setNewPassword('');
+        setConfirmPassword('');
       }
     } catch (error: any) {
       toast({
@@ -84,6 +141,7 @@ export const AuthForm = () => {
     setOtp(value);
   };
 
+  // Show OTP verification
   if (showOTP) {
     return (
       <Card className="w-full max-w-md mx-auto">
@@ -130,6 +188,54 @@ export const AuthForm = () => {
     );
   }
 
+  // Show password reset form
+  if (showResetPassword) {
+    return (
+      <Card className="w-full max-w-md mx-auto">
+        <CardHeader>
+          <CardTitle>Reset Your Password</CardTitle>
+          <CardDescription>
+            Enter a new password for your account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handlePasswordReset} className="space-y-4">
+            <div className="space-y-2">
+              <Input
+                type="password"
+                placeholder="New Password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+              />
+              <Input
+                type="password"
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? "Updating..." : "Update Password"}
+            </Button>
+          </form>
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Remember your password?{' '}
+            <button
+              type="button"
+              className="underline underline-offset-4 hover:text-primary"
+              onClick={() => setShowResetPassword(false)}
+            >
+              Sign in
+            </button>
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Default login/signup form
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
@@ -163,17 +269,36 @@ export const AuthForm = () => {
           </Button>
         </form>
 
-        <p className="mt-4 text-center text-sm text-muted-foreground">
+        <div className="mt-4 text-center text-sm text-muted-foreground">
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
             type="button"
             className="underline underline-offset-4 hover:text-primary"
-            onClick={() => setIsSignUp(!isSignUp)}
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setShowResetPassword(false);
+            }}
           >
             {isSignUp ? 'Sign in' : 'Create one'}
           </button>
-        </p>
+        </div>
+
+        {!isSignUp && (
+          <div className="mt-2 text-center text-sm text-muted-foreground">
+            <button
+              type="button"
+              className="underline underline-offset-4 hover:text-primary"
+              onClick={(e) => {
+                e.preventDefault();
+                setShowResetPassword(true);
+              }}
+            >
+              Forgot password?
+            </button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 };
+

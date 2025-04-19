@@ -1,5 +1,5 @@
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -11,72 +11,101 @@ const Auth = () => {
   const navigate = useNavigate();
   const error = searchParams.get("error");
   const errorDescription = searchParams.get("error_description");
+  const [processingAuth, setProcessingAuth] = useState(false);
   
   useEffect(() => {
-    // Handle hash parameters (recovery, access_token, etc.)
-    if (window.location.hash) {
-      // Check for authentication-related hash parameters
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    // Handle hash parameters and URL query parameters for auth
+    const processAuthParams = async () => {
+      setProcessingAuth(true);
       
-      // Check for recovery/reset password flow
-      if (hashParams.has('type') && hashParams.has('access_token')) {
-        const type = hashParams.get('type');
-        const accessToken = hashParams.get('access_token');
+      try {
+        // First check URL query parameters (for Supabase direct redirects)
+        const token = searchParams.get("token");
+        const type = searchParams.get("type");
         
-        if (type === 'recovery' && accessToken) {
-          // Handle password recovery - automatically process the token
-          handleRecoveryToken(accessToken);
-          return;
+        if (token && type) {
+          console.log("Found token in URL query params:", { type });
+          
+          if (type === "recovery") {
+            // If we have a recovery token in the URL, we need to handle it
+            const { data, error } = await supabase.auth.verifyOtp({
+              token_hash: token,
+              type: "recovery",
+            });
+            
+            if (error) {
+              console.error("Error verifying recovery token:", error);
+              throw error;
+            }
+            
+            // Redirect to homepage after successful verification
+            if (data?.user) {
+              console.log("Recovery successful, user:", data.user.email);
+              navigate("/");
+              return;
+            }
+          }
         }
-      }
-      
-      // Handle general error parameters in hash
-      if (hashParams.has('error')) {
-        // Create a new URL with search params instead of hash
+        
+        // Then check hash fragments
+        if (window.location.hash) {
+          // Check for authentication-related hash parameters
+          const hashParams = new URLSearchParams(window.location.hash.substring(1));
+          
+          // Check for recovery/reset password flow
+          if (hashParams.has('type') && hashParams.has('access_token')) {
+            const type = hashParams.get('type');
+            const accessToken = hashParams.get('access_token');
+            
+            if (type === 'recovery' && accessToken) {
+              console.log("Found recovery token in hash params");
+              // Process the recovery token
+              const { data, error } = await supabase.auth.getSession();
+              
+              if (error) {
+                console.error("Error processing recovery token:", error);
+                throw error;
+              }
+              
+              if (data?.session) {
+                console.log("Session established from recovery token");
+                navigate("/");
+                return;
+              }
+            }
+          }
+          
+          // Handle general error parameters in hash
+          if (hashParams.has('error')) {
+            // Create a new URL with search params instead of hash
+            const newUrl = new URL(window.location.href);
+            newUrl.hash = '';
+            
+            // Add all hash params to search params
+            for (const [key, value] of hashParams.entries()) {
+              newUrl.searchParams.append(key, value);
+            }
+            
+            // Replace the current URL without reloading the page
+            window.history.replaceState({}, '', newUrl.toString());
+          }
+        }
+      } catch (err: any) {
+        console.error("Auth processing error:", err);
+        
+        // Create URL with error params for exception
         const newUrl = new URL(window.location.href);
         newUrl.hash = '';
-        
-        // Add all hash params to search params
-        for (const [key, value] of hashParams.entries()) {
-          newUrl.searchParams.append(key, value);
-        }
-        
-        // Replace the current URL without reloading the page
+        newUrl.searchParams.set('error', 'processing_error');
+        newUrl.searchParams.set('error_description', err.message || 'There was an error processing your request.');
         window.history.replaceState({}, '', newUrl.toString());
+      } finally {
+        setProcessingAuth(false);
       }
-    }
-  }, [navigate]);
-  
-  // Function to handle recovery tokens
-  const handleRecoveryToken = async (token: string) => {
-    try {
-      // Process the recovery token
-      const { error } = await supabase.auth.refreshSession({
-        refresh_token: token,
-      });
-      
-      if (error) {
-        console.error("Error processing recovery token:", error);
-        // Create URL with error params
-        const newUrl = new URL(window.location.href);
-        newUrl.hash = '';
-        newUrl.searchParams.append('error', 'invalid_recovery');
-        newUrl.searchParams.append('error_description', 'The recovery link is invalid or has expired.');
-        window.history.replaceState({}, '', newUrl.toString());
-      } else {
-        // Successfully processed the token, redirect to password reset form or home
-        navigate('/');
-      }
-    } catch (err) {
-      console.error("Exception processing recovery token:", err);
-      // Create URL with error params for exception
-      const newUrl = new URL(window.location.href);
-      newUrl.hash = '';
-      newUrl.searchParams.append('error', 'processing_error');
-      newUrl.searchParams.append('error_description', 'There was an error processing your request.');
-      window.history.replaceState({}, '', newUrl.toString());
-    }
-  };
+    };
+    
+    processAuthParams();
+  }, [navigate, searchParams]);
 
   return (
     <div className="container flex flex-col items-center justify-center min-h-screen py-8">
@@ -89,9 +118,18 @@ const Auth = () => {
           </AlertDescription>
         </Alert>
       )}
-      <AuthForm />
+      
+      {processingAuth ? (
+        <div className="text-center">
+          <p className="text-lg mb-2">Processing authentication...</p>
+          <p className="text-sm text-muted-foreground">Please wait while we verify your credentials.</p>
+        </div>
+      ) : (
+        <AuthForm />
+      )}
     </div>
   );
 };
 
 export default Auth;
+
