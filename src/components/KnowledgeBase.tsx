@@ -1,50 +1,58 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileText, Upload } from "lucide-react";
+import { uploadPDF, fetchUserDocuments } from '@/utils/pdfUpload';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 interface Document {
   id: string;
   title: string;
-  filename: string;
-  uploadDate: string;
+  file_path: string;
+  upload_date: string;
   analysis?: string;
+  content?: string;
 }
-
-const initialDocuments: Document[] = [
-  {
-    id: '1',
-    title: 'Train Manual 2024',
-    filename: 'train-manual-2024.pdf',
-    uploadDate: '2024-04-19',
-    analysis: 'This document contains maintenance procedures for XYZ trains.'
-  },
-  {
-    id: '2',
-    title: 'Safety Guidelines',
-    filename: 'safety-guidelines-v2.pdf',
-    uploadDate: '2024-04-18',
-    analysis: 'Comprehensive safety protocols for train operations.'
-  }
-];
 
 export const KnowledgeBase = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      loadDocuments();
+    }
+  }, [user]);
+
+  const loadDocuments = async () => {
+    if (!user) return;
+    const userDocs = await fetchUserDocuments(user.id);
+    setDocuments(userDocs);
+  };
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     setSelectedDoc(null);
   };
 
-  const filteredDocs = initialDocuments.filter((doc) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user) return;
+    const file = event.target.files?.[0];
+    if (file) {
+      await uploadPDF(file, user.id);
+      await loadDocuments();
+    }
+  };
+
+  const filteredDocs = documents.filter((doc) => {
     const searchLower = searchQuery.toLowerCase();
     return (
-      doc.title.toLowerCase().includes(searchLower) ||
-      doc.filename.toLowerCase().includes(searchLower)
+      doc.title.toLowerCase().includes(searchLower)
     );
   });
 
@@ -61,9 +69,22 @@ export const KnowledgeBase = () => {
             className="flex-1"
           />
           <Button onClick={() => setSearchQuery('')}>Clear</Button>
-          <Button className="gap-2">
-            <Upload className="h-4 w-4" />
-            Upload PDF
+          <Button 
+            className="gap-2"
+            variant="outline"
+            asChild
+          >
+            <label htmlFor="pdf-upload" className="flex items-center cursor-pointer">
+              <Upload className="h-4 w-4 mr-2" />
+              Upload PDF
+              <input 
+                type="file" 
+                id="pdf-upload"
+                accept=".pdf"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+            </label>
           </Button>
         </div>
       </div>
@@ -93,7 +114,7 @@ export const KnowledgeBase = () => {
                         <div>
                           <h3 className="font-semibold">{doc.title}</h3>
                           <p className="text-sm text-muted-foreground">
-                            {doc.filename}
+                            {new Date(doc.upload_date).toLocaleDateString()}
                           </p>
                         </div>
                       </div>
@@ -118,7 +139,7 @@ export const KnowledgeBase = () => {
                 <div className="space-y-6">
                   <div>
                     <p className="text-sm text-muted-foreground mb-2">
-                      Uploaded on {selectedDoc.uploadDate}
+                      Uploaded on {new Date(selectedDoc.upload_date).toLocaleDateString()}
                     </p>
                     <p className="text-muted-foreground">
                       {selectedDoc.analysis || 'No analysis available yet.'}
@@ -127,7 +148,7 @@ export const KnowledgeBase = () => {
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  Select a document to view its AI analysis
+                  Select a document to view its details
                 </div>
               )}
             </ScrollArea>
