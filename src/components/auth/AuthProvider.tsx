@@ -2,7 +2,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 interface AuthContextType {
   user: User | null;
@@ -22,20 +22,29 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     // Set up auth state listener first
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, currentSession) => {
+        console.log("Auth state changed:", event);
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         
         if (event === 'SIGNED_IN') {
-          navigate('/');
+          // Don't redirect if already on the home page
+          if (location.pathname !== '/') {
+            navigate('/');
+          }
         }
         if (event === 'SIGNED_OUT') {
-          navigate('/auth');
+          // Don't redirect if already on the auth page
+          if (location.pathname !== '/auth') {
+            navigate('/auth');
+          }
         }
       }
     );
@@ -45,17 +54,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
       
-      if (!currentSession) {
+      // Only redirect if not already on the correct page
+      if (!currentSession && location.pathname !== '/auth') {
         navigate('/auth');
+      } else if (currentSession && location.pathname === '/auth') {
+        navigate('/');
       }
+      
+      setIsLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, location.pathname]);
 
   return (
     <AuthContext.Provider value={{ user, session }}>
-      {children}
+      {!isLoading && children}
     </AuthContext.Provider>
   );
 };
