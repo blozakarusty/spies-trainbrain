@@ -1,7 +1,18 @@
+
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
-export async function uploadPDF(file: File, userId: string) {
+interface UploadResult {
+  data: Array<{
+    id: string;
+    title: string;
+    file_path: string;
+    [key: string]: any;
+  }> | null;
+  uploadData: any;
+}
+
+export async function uploadPDF(file: File, userId: string): Promise<UploadResult | null> {
   try {
     const fileExt = file.name.split('.').pop();
     const fileName = `${userId}-${Date.now()}.${fileExt}`;
@@ -19,7 +30,8 @@ export async function uploadPDF(file: File, userId: string) {
         title: file.name,
         file_path: filePath,
         user_id: userId
-      });
+      })
+      .select('*');
 
     if (error) throw error;
 

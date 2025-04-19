@@ -46,9 +46,12 @@ export const KnowledgeBase = () => {
     const file = event.target.files?.[0];
     if (file) {
       const result = await uploadPDF(file, user.id);
-      if (result && result.data && result.data[0]) {
-        await processDocument(result.data[0].id);
-        await loadDocuments();
+      if (result && result.data && Array.isArray(result.data) && result.data.length > 0) {
+        const docId = result.data[0]?.id;
+        if (docId) {
+          await processDocument(docId);
+          await loadDocuments();
+        }
       }
     }
   };
