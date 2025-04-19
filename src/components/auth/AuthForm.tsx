@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Google } from "lucide-react";
+import { LogIn } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -111,7 +111,7 @@ export const AuthForm = () => {
           className="w-full"
           onClick={handleGoogleAuth}
         >
-          <Google className="mr-2 h-4 w-4" />
+          <LogIn className="mr-2 h-4 w-4" />
           Google
         </Button>
 
