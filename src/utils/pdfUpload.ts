@@ -1,22 +1,18 @@
-
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
 export async function uploadPDF(file: File, userId: string) {
   try {
-    // Generate a unique filename
     const fileExt = file.name.split('.').pop();
     const fileName = `${userId}-${Date.now()}.${fileExt}`;
     const filePath = `${fileName}`;
 
-    // Upload to Supabase storage
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('documents')
       .upload(filePath, file);
 
     if (uploadError) throw uploadError;
 
-    // Insert document metadata
     const { data, error } = await supabase
       .from('documents')
       .insert({
@@ -61,4 +57,29 @@ export async function fetchUserDocuments(userId: string) {
   }
 
   return data;
+}
+
+export async function processDocument(documentId: string) {
+  try {
+    const { data, error } = await supabase.functions.invoke('process-pdf', {
+      body: { documentId }
+    });
+
+    if (error) throw error;
+
+    toast({
+      title: "Analysis Complete",
+      description: "Document has been processed successfully"
+    });
+
+    return data;
+  } catch (error: any) {
+    toast({
+      title: "Processing Failed",
+      description: error.message,
+      variant: "destructive"
+    });
+    console.error('Document Processing Error:', error);
+    return null;
+  }
 }

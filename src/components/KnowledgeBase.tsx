@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileText, Upload } from "lucide-react";
-import { uploadPDF, fetchUserDocuments } from '@/utils/pdfUpload';
+import { uploadPDF, fetchUserDocuments, processDocument } from '@/utils/pdfUpload';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Document {
   id: string;
@@ -44,8 +45,11 @@ export const KnowledgeBase = () => {
     if (!user) return;
     const file = event.target.files?.[0];
     if (file) {
-      await uploadPDF(file, user.id);
-      await loadDocuments();
+      const result = await uploadPDF(file, user.id);
+      if (result) {
+        const newDoc = await processDocument(result.data[0].id);
+        await loadDocuments();
+      }
     }
   };
 
@@ -141,9 +145,17 @@ export const KnowledgeBase = () => {
                     <p className="text-sm text-muted-foreground mb-2">
                       Uploaded on {new Date(selectedDoc.upload_date).toLocaleDateString()}
                     </p>
-                    <p className="text-muted-foreground">
-                      {selectedDoc.analysis || 'No analysis available yet.'}
-                    </p>
+                    {selectedDoc.analysis ? (
+                      <p className="text-muted-foreground whitespace-pre-wrap">
+                        {selectedDoc.analysis}
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-[90%]" />
+                        <Skeleton className="h-4 w-[95%]" />
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
