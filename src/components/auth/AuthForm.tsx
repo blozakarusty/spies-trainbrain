@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,14 +6,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 
-export const AuthForm = () => {
+interface AuthFormProps {
+  showResetPassword?: boolean;
+}
+
+export const AuthForm = ({ showResetPassword: initialShowResetPassword = false }: AuthFormProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [showOTP, setShowOTP] = useState(false);
   const [otp, setOtp] = useState('');
-  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(initialShowResetPassword);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -28,7 +31,6 @@ export const AuthForm = () => {
           email,
           password,
           options: {
-            // Use the current window's origin as the redirect URL
             emailRedirectTo: window.location.origin,
           }
         });
@@ -62,7 +64,6 @@ export const AuthForm = () => {
     
     try {
       if (!showResetPassword) {
-        // Send password reset email
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: window.location.origin + '/auth',
         });
@@ -74,7 +75,6 @@ export const AuthForm = () => {
           description: "We've sent you a password reset link.",
         });
       } else {
-        // Reset password with new password
         if (newPassword !== confirmPassword) {
           throw new Error("Passwords don't match.");
         }
@@ -94,7 +94,6 @@ export const AuthForm = () => {
           description: "Your password has been updated.",
         });
         
-        // Reset form
         setShowResetPassword(false);
         setNewPassword('');
         setConfirmPassword('');
@@ -141,7 +140,6 @@ export const AuthForm = () => {
     setOtp(value);
   };
 
-  // Show OTP verification
   if (showOTP) {
     return (
       <Card className="w-full max-w-md mx-auto">
@@ -188,7 +186,6 @@ export const AuthForm = () => {
     );
   }
 
-  // Show password reset form
   if (showResetPassword) {
     return (
       <Card className="w-full max-w-md mx-auto">
@@ -235,7 +232,6 @@ export const AuthForm = () => {
     );
   }
 
-  // Default login/signup form
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
@@ -301,4 +297,3 @@ export const AuthForm = () => {
     </Card>
   );
 };
-

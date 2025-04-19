@@ -12,6 +12,7 @@ const Auth = () => {
   const error = searchParams.get("error");
   const errorDescription = searchParams.get("error_description");
   const [processingAuth, setProcessingAuth] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
   
   useEffect(() => {
     // Handle hash parameters and URL query parameters for auth
@@ -27,23 +28,10 @@ const Auth = () => {
           console.log("Found token in URL query params:", { type });
           
           if (type === "recovery") {
-            // If we have a recovery token in the URL, we need to handle it
-            const { data, error } = await supabase.auth.verifyOtp({
-              token_hash: token,
-              type: "recovery",
-            });
-            
-            if (error) {
-              console.error("Error verifying recovery token:", error);
-              throw error;
-            }
-            
-            // Redirect to homepage after successful verification
-            if (data?.user) {
-              console.log("Recovery successful, user:", data.user.email);
-              navigate("/");
-              return;
-            }
+            // If we have a recovery token in the URL, show the reset password form
+            setShowResetPassword(true);
+            setProcessingAuth(false);
+            return;
           }
         }
         
@@ -53,25 +41,16 @@ const Auth = () => {
           const hashParams = new URLSearchParams(window.location.hash.substring(1));
           
           // Check for recovery/reset password flow
-          if (hashParams.has('type') && hashParams.has('access_token')) {
+          if (hashParams.has('type') && (hashParams.has('access_token') || hashParams.has('token'))) {
             const type = hashParams.get('type');
-            const accessToken = hashParams.get('access_token');
+            const accessToken = hashParams.get('access_token') || hashParams.get('token');
             
             if (type === 'recovery' && accessToken) {
               console.log("Found recovery token in hash params");
-              // Process the recovery token
-              const { data, error } = await supabase.auth.getSession();
-              
-              if (error) {
-                console.error("Error processing recovery token:", error);
-                throw error;
-              }
-              
-              if (data?.session) {
-                console.log("Session established from recovery token");
-                navigate("/");
-                return;
-              }
+              // Show reset password form for hash fragment recovery
+              setShowResetPassword(true);
+              setProcessingAuth(false);
+              return;
             }
           }
           
@@ -125,11 +104,10 @@ const Auth = () => {
           <p className="text-sm text-muted-foreground">Please wait while we verify your credentials.</p>
         </div>
       ) : (
-        <AuthForm />
+        <AuthForm showResetPassword={showResetPassword} />
       )}
     </div>
   );
 };
 
 export default Auth;
-
