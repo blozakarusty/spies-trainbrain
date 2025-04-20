@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
 interface LoginSignupFormProps {
-  onForgotPassword: () => void;
+  onForgotPassword: (email: string) => void;
 }
 
 export const LoginSignupForm = ({ onForgotPassword }: LoginSignupFormProps) => {
@@ -143,7 +143,7 @@ export const LoginSignupForm = ({ onForgotPassword }: LoginSignupFormProps) => {
               onClick={(e) => {
                 e.preventDefault();
                 clearError();
-                onForgotPassword();
+                onForgotPassword(email);
               }}
             >
               Forgot password?
