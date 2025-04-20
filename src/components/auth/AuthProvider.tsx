@@ -62,20 +62,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             title: "Password Reset",
             description: "Please enter a new password."
           });
-          navigate('/auth');
+          navigate('/auth?type=recovery');
         }
         if (event === 'USER_UPDATED') {
           toast({
             title: "Profile Updated",
             description: "Your profile has been updated successfully."
           });
+          
+          // Check if this was a password update, and redirect if needed
+          if (location.pathname.includes('/auth')) {
+            navigate('/');
+          }
         }
       }
     );
 
     // Handle hash fragments for auth in URL
     const handleAuthInUrl = async () => {
-      // Check for hash fragments that indicate auth actions
       const hasAuthParams = window.location.hash && 
         (window.location.hash.includes('access_token=') || 
          window.location.hash.includes('refresh_token=') ||
@@ -83,29 +87,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
          
       if (hasAuthParams) {
         try {
-          // Extract tokens from hash
-          const hashParams = new URLSearchParams(window.location.hash.substring(1));
-          const accessToken = hashParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token');
-          const type = hashParams.get('type');
+          // Let Supabase Auth handle the hash URL automatically
+          // The onAuthStateChange event will fire appropriately
+          const { data, error } = await supabase.auth.getSession();
           
-          console.log("Auth URL parameters detected:", { type });
-          
-          // Handle recovery flow specifically
-          if (type === 'recovery' && accessToken) {
-            // Let Supabase handle the token exchange
-            const { data, error } = await supabase.auth.getUser();
-            
-            if (error) {
-              console.error("Error processing auth URL parameters:", error);
-              throw error;
-            }
-            
-            if (data.user) {
-              console.log("User authenticated from URL params:", data.user.email);
-              
-              // At this point, the user should be logged in and the onAuthStateChange will handle the navigation
-            }
+          if (error) {
+            console.error("Error processing auth URL parameters:", error);
+            throw error;
           }
         } catch (error) {
           console.error("Failed to process auth tokens:", error);

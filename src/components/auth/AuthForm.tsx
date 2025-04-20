@@ -8,9 +8,10 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 
 interface AuthFormProps {
   showResetPassword?: boolean;
+  recoveryToken?: string | null;
 }
 
-export const AuthForm = ({ showResetPassword: initialShowResetPassword = false }: AuthFormProps) => {
+export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, recoveryToken = null }: AuthFormProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +32,7 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false }
           email,
           password,
           options: {
-            emailRedirectTo: window.location.origin,
+            emailRedirectTo: window.location.origin + '/auth',
           }
         });
         if (error) throw error;
@@ -65,7 +66,7 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false }
     try {
       if (!showResetPassword) {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin + '/auth',
+          redirectTo: window.location.origin + '/auth?type=recovery',
         });
         
         if (error) throw error;
@@ -83,11 +84,19 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false }
           throw new Error("Password must be at least 6 characters.");
         }
         
-        const { error } = await supabase.auth.updateUser({
-          password: newPassword
-        });
+        let updateResult;
         
-        if (error) throw error;
+        if (recoveryToken) {
+          updateResult = await supabase.auth.updateUser({
+            password: newPassword
+          });
+        } else {
+          updateResult = await supabase.auth.updateUser({
+            password: newPassword
+          });
+        }
+        
+        if (updateResult.error) throw updateResult.error;
         
         toast({
           title: "Success!",

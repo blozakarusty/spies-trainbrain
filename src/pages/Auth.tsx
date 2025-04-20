@@ -13,6 +13,7 @@ const Auth = () => {
   const errorDescription = searchParams.get("error_description");
   const [processingAuth, setProcessingAuth] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [recoveryToken, setRecoveryToken] = useState<string | null>(null);
   
   useEffect(() => {
     // Handle hash parameters and URL query parameters for auth
@@ -28,7 +29,8 @@ const Auth = () => {
           console.log("Found token in URL query params:", { type });
           
           if (type === "recovery") {
-            // If we have a recovery token in the URL, show the reset password form
+            // If we have a recovery token in the URL, store it and show the reset password form
+            setRecoveryToken(token);
             setShowResetPassword(true);
             setProcessingAuth(false);
             return;
@@ -47,7 +49,8 @@ const Auth = () => {
             
             if (type === 'recovery' && accessToken) {
               console.log("Found recovery token in hash params");
-              // Show reset password form for hash fragment recovery
+              // Store the token and show reset password form for hash fragment recovery
+              setRecoveryToken(accessToken);
               setShowResetPassword(true);
               setProcessingAuth(false);
               return;
@@ -104,7 +107,7 @@ const Auth = () => {
           <p className="text-sm text-muted-foreground">Please wait while we verify your credentials.</p>
         </div>
       ) : (
-        <AuthForm showResetPassword={showResetPassword} />
+        <AuthForm showResetPassword={showResetPassword} recoveryToken={recoveryToken} />
       )}
     </div>
   );
