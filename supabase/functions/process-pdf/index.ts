@@ -292,7 +292,7 @@ serve(async (req) => {
           messages: [
             {
               role: 'system',
-              content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based on the document content. If information isn't available in the document, clearly state this fact.'
+              content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based on the document content. If information is not available in the document, clearly state this fact.'
             },
             {
               role: 'user',
