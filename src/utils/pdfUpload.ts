@@ -106,3 +106,33 @@ export async function processDocument(documentId: string, question?: string) {
     return null;
   }
 }
+
+export async function queryAllDocuments(question: string) {
+  try {
+    const { data: documents, error } = await supabase
+      .from('documents')
+      .select('*');
+
+    if (error) {
+      console.error("Error fetching documents:", error);
+      throw error;
+    }
+
+    console.log("Querying across all documents");
+    const response = await supabase.functions.invoke('process-pdf', {
+      body: { question, documents }
+    });
+
+    if (response.error) throw response.error;
+
+    return response.data;
+  } catch (error: any) {
+    toast({
+      title: "Query Failed",
+      description: error.message,
+      variant: "destructive"
+    });
+    console.error('Document Query Error:', error);
+    return null;
+  }
+}

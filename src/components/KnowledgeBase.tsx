@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileText, Upload, Send } from "lucide-react";
-import { uploadPDF, fetchDocuments, processDocument } from '@/utils/pdfUpload';
+import { uploadPDF, fetchDocuments, processDocument, queryAllDocuments } from '@/utils/pdfUpload';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -26,6 +25,9 @@ export const KnowledgeBase = () => {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [globalQuestion, setGlobalQuestion] = useState('');
+  const [globalAnswer, setGlobalAnswer] = useState('');
+  const [isSearchingAll, setIsSearchingAll] = useState(false);
 
   useEffect(() => {
     loadDocuments();
@@ -85,6 +87,22 @@ export const KnowledgeBase = () => {
     }
   };
 
+  const handleGlobalQuestion = async () => {
+    if (!globalQuestion.trim()) return;
+
+    setIsSearchingAll(true);
+    try {
+      const response = await queryAllDocuments(globalQuestion);
+      if (response) {
+        setGlobalAnswer(response.analysis);
+      }
+    } catch (error) {
+      console.error("Error asking global question:", error);
+    } finally {
+      setIsSearchingAll(false);
+    }
+  };
+
   const filteredDocs = documents.filter((doc) => {
     const searchLower = searchQuery.toLowerCase();
     return doc.title.toLowerCase().includes(searchLower);
@@ -121,6 +139,46 @@ export const KnowledgeBase = () => {
             </label>
           </Button>
         </div>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Ask Across All Documents</CardTitle>
+            <CardDescription>
+              Ask a question that will be searched across all uploaded documents
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <Textarea
+                placeholder="What would you like to know about the uploaded documents?"
+                value={globalQuestion}
+                onChange={(e) => setGlobalQuestion(e.target.value)}
+              />
+              <Button 
+                onClick={handleGlobalQuestion}
+                disabled={isSearchingAll || !globalQuestion.trim()}
+                className="w-full"
+              >
+                {isSearchingAll ? (
+                  "Searching All Documents..."
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Search All Documents
+                  </>
+                )}
+              </Button>
+              {globalAnswer && (
+                <div className="bg-muted p-4 rounded-lg mt-4">
+                  <h4 className="font-semibold mb-2">Analysis Result</h4>
+                  <p className="text-muted-foreground whitespace-pre-wrap">
+                    {globalAnswer}
+                  </p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

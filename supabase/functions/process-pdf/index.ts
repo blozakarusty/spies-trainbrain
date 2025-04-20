@@ -1,7 +1,5 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,18 +7,54 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { documentId, question } = await req.json();
+    const { documentId, question, documents } = await req.json();
 
-    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    // If documents array is provided, we're doing a cross-document search
+    if (documents) {
+      const combinedContent = documents
+        .map(doc => `Document "${doc.title}":\n${doc.content || ''}`)
+        .join('\n\n');
+
+      const prompt = `Based on the following documents, please analyze and answer this question: "${question}"\n\nIf you cannot find relevant information to answer with high confidence, respond with "I've analyzed all the documents, but nothing relevant could be found."\n\nDocuments content:\n${combinedContent}`;
+
+      const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an AI assistant that analyzes documents and provides insights based on their content. Be direct and concise in your responses.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: 1000
+        }),
+      });
+
+      const analysisData = await openAIResponse.json();
+      const analysis = analysisData.choices[0].message.content;
+
+      return new Response(JSON.stringify({ analysis }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Get document details
     const { data: document, error: docError } = await supabase
@@ -106,7 +140,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error processing PDF:', error);
+    console.error('Error processing documents:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
