@@ -34,7 +34,6 @@ export async function uploadPDF(file: File): Promise<UploadResult | null> {
       .insert({
         title: file.name,
         file_path: filePath,
-        // No longer adding a user_id field as it's now nullable
       })
       .select('*');
 
@@ -85,17 +84,17 @@ export async function processDocument(documentId: string, question?: string) {
   try {
     console.log(`Processing document ${documentId}${question ? ' with question' : ''}`);
     
-    // Add a timeout for the function call
-    const timeoutMs = 30000; // 30 seconds
+    // Shorter timeout for function call
+    const timeoutMs = 15000; // 15 seconds
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("Processing timed out after 30 seconds"));
+        reject(new Error("Processing timed out after 15 seconds"));
       }, timeoutMs);
     });
     
-    // Actual function call
+    // Actual function call with minimal payload
     const functionPromise = supabase.functions.invoke('process-pdf', {
       body: { documentId, question }
     });
@@ -123,7 +122,7 @@ export async function processDocument(documentId: string, question?: string) {
     console.error('Document Processing Error:', error);
     toast({
       title: "Processing Failed",
-      description: error.message || "Document processing failed. Please try again.",
+      description: error.message || "Document processing failed. Please try again with a smaller document.",
       variant: "destructive"
     });
     return null;
@@ -133,21 +132,22 @@ export async function processDocument(documentId: string, question?: string) {
 export async function queryAllDocuments(question: string) {
   try {
     console.log("Querying across all documents");
-    // Set a timeout for the query to prevent hanging on long operations
-    const timeoutMs = 30000; // 30 seconds
+    // Set a shorter timeout
+    const timeoutMs = 15000; // 15 seconds
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("Query timed out after 30 seconds"));
+        reject(new Error("Query timed out after 15 seconds"));
       }, timeoutMs);
     });
     
-    // Get document metadata to reduce payload size
+    // Get minimal document metadata to reduce payload size
     const { data: documents, error: fetchError } = await supabase
       .from('documents')
-      .select('id, title, file_path, created_at, content')
-      .order('created_at', { ascending: false });
+      .select('id, title, file_path, created_at')
+      .order('created_at', { ascending: false })
+      .limit(5); // Limit to 5 most recent documents
 
     if (fetchError) {
       console.error("Error fetching documents:", fetchError);
@@ -156,7 +156,7 @@ export async function queryAllDocuments(question: string) {
 
     console.log(`Found ${documents.length} documents to search through`);
     
-    // Create actual function call
+    // Create actual function call with simplified payload
     const functionPromise = supabase.functions.invoke('process-pdf', {
       body: { question, documents }
     });
@@ -177,7 +177,7 @@ export async function queryAllDocuments(question: string) {
     console.error('Document Query Error:', error);
     toast({
       title: "Query Failed",
-      description: error.message || "Query processing failed. Please try again.",
+      description: error.message || "Query processing failed. Please try with a simpler question.",
       variant: "destructive"
     });
     return null;

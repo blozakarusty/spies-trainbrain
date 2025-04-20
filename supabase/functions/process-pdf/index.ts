@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.5.0";
@@ -7,9 +8,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CHUNK_SIZE = 4000; // Keeping the smaller chunk size
-const MAX_CHUNKS_PER_ANALYSIS = 3; // Limit the number of chunks per analysis
-const MAX_DOCUMENT_SAMPLE = 3; // Slightly increased sample size
+// Reduced chunk size to prevent memory issues
+const CHUNK_SIZE = 3000;
+const MAX_CHUNKS_PER_ANALYSIS = 2; // Reduced to 2 chunks
+const MAX_DOCUMENT_SAMPLE = 2; // Reduced sample size
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -29,12 +31,11 @@ serve(async (req) => {
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    // If documents array is provided, we're doing a cross-document search
+    // Cross-document search
     if (documents) {
       console.log("Processing cross-document search for query:", question);
-      console.log("Question content:", question);
       
-      // Take sample of documents
+      // Take smaller sample of documents
       const documentSample = documents.slice(0, MAX_DOCUMENT_SAMPLE);
       console.log(`Processing ${documentSample.length} documents (sample from ${documents.length} total)`);
       
@@ -65,16 +66,18 @@ serve(async (req) => {
               docContent = await fileData.text();
               console.log(`Downloaded content for document ${doc.id}, size: ${docContent.length} bytes`);
               
-              // Update document content in database in background
+              // Update document content in database in background, but don't wait for it
               if (docContent.length > 0) {
                 try {
-                  const { error } = await supabase
+                  // Don't use await here to avoid blocking
+                  supabase
                     .from('documents')
                     .update({ content: docContent })
-                    .eq('id', doc.id);
-                    
-                  if (error) console.error(`Error updating document ${doc.id} content:`, error);
-                  else console.log(`Updated content for document ${doc.id} in database`);
+                    .eq('id', doc.id)
+                    .then(({ error }) => {
+                      if (error) console.error(`Error updating document ${doc.id} content:`, error);
+                      else console.log(`Updated content for document ${doc.id} in database`);
+                    });
                 } catch (updateError) {
                   console.error(`Exception updating document ${doc.id} content:`, updateError);
                 }
@@ -96,68 +99,43 @@ serve(async (req) => {
         
         console.log(`Document ${doc.id} content length: ${docContent.length} bytes`);
         
-        // Split content into smaller chunks to avoid memory issues
+        // Handle very large documents by taking just the beginning
+        if (docContent.length > 20000) {
+          console.log(`Document ${doc.id} is very large, truncating to first 20000 bytes`);
+          docContent = docContent.substring(0, 20000);
+        }
+        
+        // Split content into smaller chunks
         const chunks = chunkText(docContent, CHUNK_SIZE);
         console.log(`Document ${doc.id} split into ${chunks.length} chunks`);
         
-        // Process a limited subset of chunks - but we now add the first chunk anyway
-        // as it often contains important introductory information
-        const firstChunk = chunks.length > 0 ? chunks[0] : null;
-        const chunksToProcess = chunks.slice(1, MAX_CHUNKS_PER_ANALYSIS + 1);
-        
-        if (firstChunk) {
-          console.log(`Adding first chunk from document ${doc.id} (introductory content)`);
-          relevantContentChunks.push(`Document "${doc.title}" (introduction):\n${firstChunk.substring(0, 1500)}`);
+        // Always include the first chunk (introduction) for context
+        if (chunks.length > 0) {
+          console.log(`Adding first chunk from document ${doc.id} (introduction)`);
+          relevantContentChunks.push(`Document "${doc.title}" (introduction):\n${chunks[0].substring(0, 1000)}`);
         }
         
-        console.log(`Processing ${chunksToProcess.length} additional chunks from document ${doc.id}`);
-        
-        for (const chunk of chunksToProcess) {
-          // For smaller documents, just include all chunks without checking relevance
-          if (chunks.length <= 2) {
-            console.log(`Document ${doc.id} is small, adding chunk without relevance check`);
-            relevantContentChunks.push(`Document "${doc.title}":\n${chunk.substring(0, 1500)}`);
-            continue;
-          }
-          
-          // Otherwise check relevance
-          try {
-            console.log(`Checking relevance for chunk in document ${doc.id}`);
-            const relevanceCheck = await checkRelevance(chunk, question);
-            console.log(`Relevance check result:`, relevanceCheck);
-            
-            if (relevanceCheck.isRelevant) {
-              console.log(`Found relevant content in document ${doc.id}`);
-              relevantContentChunks.push(`Document "${doc.title}":\n${relevanceCheck.excerpt}`);
-            }
-            
-            // Limit the number of chunks we collect
-            if (relevantContentChunks.length >= 5) {
-              console.log("Reached maximum relevant chunks limit, stopping collection");
-              break;
-            }
-          } catch (relevanceError) {
-            console.error(`Error checking relevance for chunk in document ${doc.id}:`, relevanceError);
-            // If relevance check fails, include the chunk anyway
-            relevantContentChunks.push(`Document "${doc.title}" (relevance check failed):\n${chunk.substring(0, 1500)}`);
-          }
+        // Only process one more additional chunk to save memory
+        if (chunks.length > 1) {
+          console.log(`Adding second chunk from document ${doc.id}`);
+          relevantContentChunks.push(`Document "${doc.title}" (continued):\n${chunks[1].substring(0, 1000)}`);
         }
         
         // If we have enough content, stop processing more documents
-        if (relevantContentChunks.length >= 5) {
+        if (relevantContentChunks.length >= 3) {
           console.log("Reached maximum relevant chunks across documents, stopping document processing");
           break;
         }
       }
       
-      console.log("Relevant content chunks collected:", relevantContentChunks.length);
+      console.log("Content chunks collected:", relevantContentChunks.length);
       
       // If no relevant chunks found, but we have documents, include some content anyway
       if (relevantContentChunks.length === 0 && documentSample.length > 0) {
-        console.log("No specifically relevant chunks found, using first parts of documents anyway");
-        for (const doc of documentSample.slice(0, 2)) {
+        console.log("No chunks found, using first parts of documents anyway");
+        for (const doc of documentSample.slice(0, 1)) {
           if (doc.content && doc.content.length > 0) {
-            relevantContentChunks.push(`Document "${doc.title}" (sample):\n${doc.content.substring(0, 1500)}`);
+            relevantContentChunks.push(`Document "${doc.title}" (sample):\n${doc.content.substring(0, 1000)}`);
           }
         }
       }
@@ -171,11 +149,18 @@ serve(async (req) => {
         });
       }
       
-      // Combine relevant chunks but limit total size
-      const combinedContent = relevantContentChunks.join('\n\n');
-      console.log("Combined relevant content size:", combinedContent.length, "bytes");
+      // Combine relevant chunks but strictly limit total size
+      let combinedContent = relevantContentChunks.join('\n\n');
+      
+      // Enforce a hard limit on content size
+      if (combinedContent.length > 6000) {
+        console.log("Combined content too large, truncating to 6000 characters");
+        combinedContent = combinedContent.substring(0, 6000);
+      }
+      
+      console.log("Final combined content size:", combinedContent.length, "bytes");
 
-      const prompt = `Based on the following excerpts from documents, please analyze and answer this question: "${question}"\n\nIf you cannot find information to answer with high confidence, say so clearly. Don't make up information that isn't in the documents.\n\nRelevant excerpts:\n${combinedContent}`;
+      const prompt = `Question: "${question}"\n\nDocuments Content:\n${combinedContent}\n\nBased on ONLY the content from these documents, provide a concise answer to the question. If you cannot find sufficient information to answer with confidence, clearly state this. Do not make up information that isn't present in the documents.`;
 
       console.log("Sending request to OpenAI with prompt size:", prompt.length, "bytes");
       try {
@@ -197,7 +182,8 @@ serve(async (req) => {
                 content: prompt
               }
             ],
-            max_tokens: 800
+            max_tokens: 500,
+            temperature: 0.3
           }),
         });
 
@@ -256,19 +242,21 @@ serve(async (req) => {
           docContent = await fileData.text();
           console.log("Extracted text from PDF, length:", docContent.length);
 
-          // Update document with content in background
+          // Update document with content in background - don't block
           if (docContent.length > 0) {
             try {
-              const { error } = await supabase
+              // Don't use await here - fire and forget
+              supabase
                 .from('documents')
                 .update({ content: docContent })
-                .eq('id', documentId);
-                
-              if (error) {
-                console.error("Document update error:", error);
-              } else {
-                console.log("Updated document content in database");
-              }
+                .eq('id', documentId)
+                .then(({ error }) => {
+                  if (error) {
+                    console.error("Document update error:", error);
+                  } else {
+                    console.log("Updated document content in database");
+                  }
+                });
             } catch (updateError) {
               console.error("Exception updating document content:", updateError);
             }
@@ -295,22 +283,25 @@ serve(async (req) => {
       });
     }
 
+    // Limit very large documents
+    if (docContent.length > 20000) {
+      console.log("Document is very large, truncating to first 20000 bytes");
+      docContent = docContent.substring(0, 20000);
+    }
+
     // Process document content in chunks
     const chunks = chunkText(docContent, CHUNK_SIZE);
     console.log(`Document split into ${chunks.length} chunks for processing`);
     
-    // If there's a specific question, find relevant chunks and answer
+    // If there's a specific question, process it
     if (question) {
       console.log("Question content:", question);
       
-      // For smaller documents, just process everything instead of checking relevance
-      if (chunks.length <= 2) {
-        console.log("Document is small, processing entire content without relevance checks");
-        const contentForAnalysis = docContent.length > CHUNK_SIZE * 2 
-          ? docContent.substring(0, CHUNK_SIZE * 2) 
-          : docContent;
+      // For small documents, just use the content directly
+      if (docContent.length < CHUNK_SIZE * 2) {
+        console.log("Document is small, using entire content");
         
-        const prompt = `Based on the following document content, please answer this question: "${question}"\n\nDocument content: ${contentForAnalysis}`;
+        const prompt = `Document content:\n${docContent}\n\nQuestion: "${question}"\n\nBased ONLY on the document content, please provide a concise answer to this question. If you cannot find the information in the document, clearly state this fact.`;
 
         console.log("Sending request to OpenAI with prompt size:", prompt.length, "bytes");
         try {
@@ -325,14 +316,15 @@ serve(async (req) => {
               messages: [
                 {
                   role: 'system',
-                  content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based on the document content. If information is not available in the document, clearly state this fact.'
+                  content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based only on the document content. If information is not available in the document, clearly state this fact.'
                 },
                 {
                   role: 'user',
                   content: prompt
                 }
               ],
-              max_tokens: 800
+              max_tokens: 500,
+              temperature: 0.3
             }),
           });
 
@@ -359,60 +351,11 @@ serve(async (req) => {
         }
       }
       
-      // For larger documents, use relevance checking
-      // Limit the number of chunks we process
-      const chunksToProcess = chunks.slice(0, MAX_CHUNKS_PER_ANALYSIS + 1);
-      console.log(`Processing ${chunksToProcess.length} chunks from document for relevance`);
+      // For larger documents, just use the first couple chunks
+      const contentForAnalysis = chunks.slice(0, 2).join('\n\n');
+      console.log("Using first two chunks for analysis, length:", contentForAnalysis.length);
       
-      const relevantChunks = [];
-      
-      // Always include the first chunk as it often contains important context
-      if (chunks.length > 0) {
-        console.log("Adding first chunk (introduction) without relevance check");
-        relevantChunks.push(chunks[0].substring(0, 1500));
-      }
-      
-      for (const chunk of chunksToProcess.slice(1)) {
-        try {
-          console.log("Checking relevance for chunk");
-          const relevanceCheck = await checkRelevance(chunk, question);
-          console.log("Relevance check result:", relevanceCheck);
-          
-          if (relevanceCheck.isRelevant) {
-            relevantChunks.push(relevanceCheck.excerpt);
-            
-            // Limit number of chunks
-            if (relevantChunks.length >= 3) {
-              console.log("Reached maximum relevant chunks limit, stopping collection");
-              break;
-            }
-          }
-        } catch (relevanceError) {
-          console.error("Error checking relevance:", relevanceError);
-          // If relevance check fails, include the chunk anyway
-          relevantChunks.push(chunk.substring(0, 1500));
-          console.log("Added chunk despite relevance check failure");
-        }
-      }
-      
-      console.log(`Found ${relevantChunks.length} relevant chunks for question`);
-      
-      let contentForAnalysis;
-      if (relevantChunks.length > 0) {
-        contentForAnalysis = relevantChunks.join('\n\n');
-      } else {
-        // If no relevant chunks found, use the first few chunks
-        contentForAnalysis = chunksToProcess.slice(0, 2).join('\n\n');
-        console.log("No specifically relevant chunks found, using document subset");
-      }
-      
-      // Ensure content isn't too large
-      if (contentForAnalysis.length > CHUNK_SIZE * 2) {
-        contentForAnalysis = contentForAnalysis.substring(0, CHUNK_SIZE * 2);
-        console.log("Content for analysis was too large, truncated to", contentForAnalysis.length, "bytes");
-      }
-      
-      const prompt = `Based on the following document content, please answer this question: "${question}"\n\nDocument content: ${contentForAnalysis}`;
+      const prompt = `Document content:\n${contentForAnalysis}\n\nQuestion: "${question}"\n\nBased ONLY on the document content, please provide a concise answer to this question. If you cannot find the information in the document, clearly state this fact.`;
 
       console.log("Sending request to OpenAI with prompt size:", prompt.length, "bytes");
       try {
@@ -427,14 +370,15 @@ serve(async (req) => {
             messages: [
               {
                 role: 'system',
-                content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based on the document content. If information is not available in the document, clearly state this fact.'
+                content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based only on the document content. If information is not available in the document, clearly state this fact.'
               },
               {
                 role: 'user',
                 content: prompt
               }
             ],
-            max_tokens: 800
+            max_tokens: 500,
+            temperature: 0.3
           }),
         });
 
@@ -461,13 +405,12 @@ serve(async (req) => {
       }
     } else {
       // General analysis for document summary
-      // Only use first few chunks to prevent memory issues
-      const summaryChunks = chunks.slice(0, 2);
-      const summaryContent = summaryChunks.join('\n\n');
+      // Only use first chunk to prevent memory issues
+      const summaryContent = chunks.length > 0 ? chunks[0] : "";
       
       console.log("Generating summary with content length:", summaryContent.length, "bytes");
       
-      const prompt = `Please analyze the following document content and provide a concise summary: ${summaryContent}`;
+      const prompt = `Please provide a concise summary of this document content:\n\n${summaryContent}`;
 
       console.log("Sending request to OpenAI for document summary");
       try {
@@ -489,7 +432,8 @@ serve(async (req) => {
                 content: prompt
               }
             ],
-            max_tokens: 800
+            max_tokens: 500,
+            temperature: 0.3
           }),
         });
 
@@ -503,19 +447,21 @@ serve(async (req) => {
         const analysis = analysisData.choices[0].message.content;
         console.log("Received summary from OpenAI, length:", analysis.length);
 
-        // Store the analysis in a safe way
+        // Store the analysis in a background operation
         console.log("Storing analysis in database");
         try {
-          const { error } = await supabase
+          // Don't await this operation
+          supabase
             .from('documents')
             .update({ analysis })
-            .eq('id', documentId);
-            
-          if (error) {
-            console.error("Error updating document analysis:", error);
-          } else {
-            console.log("Updated document analysis in database successfully");
-          }
+            .eq('id', documentId)
+            .then(({ error }) => {
+              if (error) {
+                console.error("Error updating document analysis:", error);
+              } else {
+                console.log("Updated document analysis in database successfully");
+              }
+            });
         } catch (updateError) {
           console.error("Exception updating document analysis:", updateError);
         }
@@ -534,7 +480,10 @@ serve(async (req) => {
     }
   } catch (error) {
     console.error('Error processing documents:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ 
+      error: error.message,
+      analysis: "An error occurred while processing your request. Please try again with a smaller document or a simpler query."
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -550,69 +499,4 @@ function chunkText(text, chunkSize) {
     chunks.push(text.substring(i, i + chunkSize));
   }
   return chunks;
-}
-
-// Function to check if a chunk is relevant to the question
-async function checkRelevance(chunk, question) {
-  try {
-    // Use a shorter preview for relevance checking
-    const previewText = chunk.length > 1000 ? chunk.substring(0, 1000) : chunk;
-    
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an AI assistant that determines if text contains information relevant to a question. Reply with a JSON object containing "isRelevant": true or false, and if relevant, include a brief "excerpt" of the most relevant part.'
-          },
-          {
-            role: 'user',
-            content: `Question: "${question}"\n\nText to check:\n${previewText}`
-          }
-        ],
-        max_tokens: 200,
-        temperature: 0.1
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("Error checking relevance:", await response.text());
-      // Default to including the chunk if we can't check relevance
-      return { isRelevant: true, excerpt: chunk.substring(0, 800) };
-    }
-
-    const data = await response.json();
-    const result = data.choices[0].message.content;
-    console.log("Raw relevance check result:", result);
-    
-    try {
-      // Try to parse the JSON response
-      const parsed = JSON.parse(result);
-      if (parsed.isRelevant) {
-        return {
-          isRelevant: true,
-          excerpt: parsed.excerpt || chunk.substring(0, 800)
-        };
-      }
-      return { isRelevant: false };
-    } catch (e) {
-      // If parsing fails, check if the text contains "true"
-      console.log("Failed to parse relevance check result:", e);
-      if (result.toLowerCase().includes('"isrelevant": true') || 
-          result.toLowerCase().includes('"isrelevant":true')) {
-        return { isRelevant: true, excerpt: chunk.substring(0, 800) };
-      }
-      return { isRelevant: false };
-    }
-  } catch (error) {
-    console.error("Error in relevance checking:", error);
-    // Default to including the chunk if the relevance check fails
-    return { isRelevant: true, excerpt: chunk.substring(0, 800) };
-  }
 }
