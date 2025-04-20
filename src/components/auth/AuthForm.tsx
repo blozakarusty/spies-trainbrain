@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 
@@ -19,8 +18,6 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [showOTP, setShowOTP] = useState(false);
-  const [otp, setOtp] = useState('');
   const [showResetPassword, setShowResetPassword] = useState(initialShowResetPassword);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -54,9 +51,8 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
         
         toast({
           title: "Check your email",
-          description: "We've sent you a confirmation link or enter the OTP code below.",
+          description: "We've sent you a confirmation link.",
         });
-        setShowOTP(true);
       } else {
         console.log("Attempting to sign in with email:", email);
         const { error } = await supabase.auth.signInWithPassword({
@@ -124,7 +120,6 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
           description: "Your password has been updated. Please sign in with your new password.",
         });
         
-        // Reset form after successful password update
         setShowResetPassword(false);
         setNewPassword('');
         setConfirmPassword('');
@@ -141,95 +136,6 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
       setIsLoading(false);
     }
   };
-
-  const verifyOTP = async () => {
-    clearError();
-    setIsLoading(true);
-    try {
-      console.log("Verifying OTP for email:", email);
-      const { error } = await supabase.auth.verifyOtp({
-        email,
-        token: otp,
-        type: 'signup',
-      });
-      
-      if (error) throw error;
-      
-      toast({
-        title: "Success!",
-        description: "Your account has been verified. You can now sign in.",
-      });
-      setShowOTP(false);
-      setIsSignUp(false);
-    } catch (error: any) {
-      console.error("OTP verification error:", error);
-      setErrorMessage(error.message);
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleOTPChange = (value: string) => {
-    clearError();
-    setOtp(value);
-  };
-
-  if (showOTP) {
-    return (
-      <Card className="w-full max-w-md mx-auto">
-        <CardHeader>
-          <CardTitle>Verify your email</CardTitle>
-          <CardDescription>
-            Enter the verification code sent to your email
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {errorMessage && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{errorMessage}</AlertDescription>
-            </Alert>
-          )}
-          <div className="space-y-4">
-            <div className="flex justify-center">
-              <InputOTP maxLength={6} value={otp} onChange={handleOTPChange}>
-                <InputOTPGroup>
-                  <InputOTPSlot index={0} />
-                  <InputOTPSlot index={1} />
-                  <InputOTPSlot index={2} />
-                  <InputOTPSlot index={3} />
-                  <InputOTPSlot index={4} />
-                  <InputOTPSlot index={5} />
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
-            <Button 
-              onClick={verifyOTP} 
-              className="w-full" 
-              disabled={isLoading || otp.length < 6}
-            >
-              {isLoading ? "Verifying..." : "Verify Email"}
-            </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              Didn't receive the code?{' '}
-              <button
-                type="button"
-                className="underline underline-offset-4 hover:text-primary"
-                onClick={handleEmailAuth}
-              >
-                Resend code
-              </button>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
 
   if (showResetPassword) {
     return (
