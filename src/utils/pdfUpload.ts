@@ -125,6 +125,18 @@ export async function queryAllDocuments(question: string) {
     }
 
     console.log(`Found ${documents.length} documents to search through`);
+    
+    // Log the first document to see what's available
+    if (documents.length > 0) {
+      const firstDoc = documents[0];
+      console.log("Sample document:", {
+        id: firstDoc.id,
+        title: firstDoc.title,
+        hasContent: !!firstDoc.content,
+        contentLength: firstDoc.content ? firstDoc.content.length : 0
+      });
+    }
+
     const { data, error } = await supabase.functions.invoke('process-pdf', {
       body: { question, documents }
     });
