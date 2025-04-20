@@ -21,54 +21,74 @@ const Auth = () => {
       setProcessingAuth(true);
       
       try {
-        // First check URL query parameters (for Supabase direct redirects)
-        const token = searchParams.get("token");
+        // Check for type=recovery in URL query params
         const type = searchParams.get("type");
-        
-        if (token && type) {
-          console.log("Found token in URL query params:", { type });
+        if (type === "recovery") {
+          console.log("Found recovery type in URL params");
+          setShowResetPassword(true);
           
-          if (type === "recovery") {
-            // If we have a recovery token in the URL, store it and show the reset password form
-            setRecoveryToken(token);
-            setShowResetPassword(true);
-            setProcessingAuth(false);
-            return;
+          // Get current session - if we have one, we can reset the password
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData.session) {
+            console.log("User has an active session for password reset");
           }
         }
         
-        // Then check hash fragments
+        // Check for recovery tokens in URL
+        const token = searchParams.get("token") || searchParams.get("access_token");
+        if (token && type === "recovery") {
+          console.log("Found recovery token in URL query params");
+          setRecoveryToken(token);
+          setShowResetPassword(true);
+        }
+        
+        // Process hash fragments
         if (window.location.hash) {
-          // Check for authentication-related hash parameters
+          console.log("Processing hash fragments:", window.location.hash);
           const hashParams = new URLSearchParams(window.location.hash.substring(1));
           
-          // Check for recovery/reset password flow
-          if (hashParams.has('type') && (hashParams.has('access_token') || hashParams.has('token'))) {
-            const type = hashParams.get('type');
-            const accessToken = hashParams.get('access_token') || hashParams.get('token');
+          // Check for recovery flow in hash
+          if (hashParams.has('type') && hashParams.get('type') === 'recovery') {
+            console.log("Found recovery type in hash");
+            setShowResetPassword(true);
             
-            if (type === 'recovery' && accessToken) {
-              console.log("Found recovery token in hash params");
-              // Store the token and show reset password form for hash fragment recovery
-              setRecoveryToken(accessToken);
-              setShowResetPassword(true);
-              setProcessingAuth(false);
-              return;
+            // Look for token in hash
+            const hashToken = hashParams.get('access_token') || hashParams.get('token');
+            if (hashToken) {
+              console.log("Found recovery token in hash");
+              setRecoveryToken(hashToken);
             }
           }
           
-          // Handle general error parameters in hash
+          // Process general auth
+          if (hashParams.has('access_token') || hashParams.has('refresh_token')) {
+            console.log("Found auth tokens in hash, letting Supabase handle them");
+            
+            // Let Supabase process the tokens
+            const { data, error } = await supabase.auth.getSession();
+            
+            if (error) {
+              console.error("Error processing hash tokens:", error);
+              throw error;
+            }
+            
+            if (data.session) {
+              console.log("Successfully processed tokens from hash");
+            }
+          }
+          
+          // Handle error in hash
           if (hashParams.has('error')) {
-            // Create a new URL with search params instead of hash
+            console.error("Error in hash:", hashParams.get('error'), hashParams.get('error_description'));
+            
+            // Move hash params to search params for better display
             const newUrl = new URL(window.location.href);
             newUrl.hash = '';
             
-            // Add all hash params to search params
             for (const [key, value] of hashParams.entries()) {
               newUrl.searchParams.append(key, value);
             }
             
-            // Replace the current URL without reloading the page
             window.history.replaceState({}, '', newUrl.toString());
           }
         }

@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -5,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 
 interface AuthFormProps {
   showResetPassword?: boolean;
@@ -21,36 +24,58 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
   const [showResetPassword, setShowResetPassword] = useState(initialShowResetPassword);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const clearError = () => setErrorMessage(null);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    clearError();
     setIsLoading(true);
     
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
+        console.log("Attempting to sign up with email:", email);
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: window.location.origin + '/auth',
+            emailRedirectTo: `${window.location.origin}/auth`,
           }
         });
+        
         if (error) throw error;
+        
+        console.log("Sign up response:", data);
+        
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
+          throw new Error("This email is already registered. Please try logging in instead.");
+        }
+        
         toast({
           title: "Check your email",
           description: "We've sent you a confirmation link or enter the OTP code below.",
         });
         setShowOTP(true);
       } else {
+        console.log("Attempting to sign in with email:", email);
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
+        
         if (error) throw error;
+        
+        toast({
+          title: "Signed in successfully",
+          description: "You are now logged in.",
+        });
       }
     } catch (error: any) {
+      console.error("Authentication error:", error);
+      setErrorMessage(error.message);
       toast({
-        title: "Error",
+        title: "Authentication Error",
         description: error.message,
         variant: "destructive",
       });
@@ -61,12 +86,14 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
 
   const handlePasswordReset = async (e: React.FormEvent) => {
     e.preventDefault();
+    clearError();
     setIsLoading(true);
     
     try {
       if (!showResetPassword) {
+        console.log("Sending password reset email to:", email);
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin + '/auth?type=recovery',
+          redirectTo: `${window.location.origin}/auth?type=recovery`,
         });
         
         if (error) throw error;
@@ -84,30 +111,27 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
           throw new Error("Password must be at least 6 characters.");
         }
         
-        let updateResult;
+        console.log("Attempting to update password with recovery token");
         
-        if (recoveryToken) {
-          updateResult = await supabase.auth.updateUser({
-            password: newPassword
-          });
-        } else {
-          updateResult = await supabase.auth.updateUser({
-            password: newPassword
-          });
-        }
+        const { error } = await supabase.auth.updateUser({
+          password: newPassword
+        });
         
-        if (updateResult.error) throw updateResult.error;
+        if (error) throw error;
         
         toast({
           title: "Success!",
-          description: "Your password has been updated.",
+          description: "Your password has been updated. Please sign in with your new password.",
         });
         
+        // Reset form after successful password update
         setShowResetPassword(false);
         setNewPassword('');
         setConfirmPassword('');
       }
     } catch (error: any) {
+      console.error("Password reset error:", error);
+      setErrorMessage(error.message);
       toast({
         title: "Error",
         description: error.message,
@@ -119,8 +143,10 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
   };
 
   const verifyOTP = async () => {
+    clearError();
     setIsLoading(true);
     try {
+      console.log("Verifying OTP for email:", email);
       const { error } = await supabase.auth.verifyOtp({
         email,
         token: otp,
@@ -131,10 +157,13 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
       
       toast({
         title: "Success!",
-        description: "Your account has been verified.",
+        description: "Your account has been verified. You can now sign in.",
       });
       setShowOTP(false);
+      setIsSignUp(false);
     } catch (error: any) {
+      console.error("OTP verification error:", error);
+      setErrorMessage(error.message);
       toast({
         title: "Error",
         description: error.message,
@@ -146,6 +175,7 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
   };
 
   const handleOTPChange = (value: string) => {
+    clearError();
     setOtp(value);
   };
 
@@ -159,6 +189,12 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {errorMessage && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          )}
           <div className="space-y-4">
             <div className="flex justify-center">
               <InputOTP maxLength={6} value={otp} onChange={handleOTPChange}>
@@ -201,29 +237,45 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
         <CardHeader>
           <CardTitle>Reset Your Password</CardTitle>
           <CardDescription>
-            Enter a new password for your account
+            {recoveryToken ? "Enter a new password for your account" : "Enter your email to receive a reset link"}
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {errorMessage && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          )}
           <form onSubmit={handlePasswordReset} className="space-y-4">
-            <div className="space-y-2">
+            {recoveryToken ? (
+              <div className="space-y-2">
+                <Input
+                  type="password"
+                  placeholder="New Password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                />
+                <Input
+                  type="password"
+                  placeholder="Confirm Password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+              </div>
+            ) : (
               <Input
-                type="password"
-                placeholder="New Password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
               />
-              <Input
-                type="password"
-                placeholder="Confirm Password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
-            </div>
+            )}
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Updating..." : "Update Password"}
+              {isLoading ? "Processing..." : recoveryToken ? "Update Password" : "Send Reset Link"}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
@@ -231,7 +283,10 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
             <button
               type="button"
               className="underline underline-offset-4 hover:text-primary"
-              onClick={() => setShowResetPassword(false)}
+              onClick={() => {
+                clearError();
+                setShowResetPassword(false);
+              }}
             >
               Sign in
             </button>
@@ -252,20 +307,32 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {errorMessage && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+        )}
         <form onSubmit={handleEmailAuth} className="space-y-4">
           <div className="space-y-2">
             <Input
               type="email"
               placeholder="Email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                clearError();
+                setEmail(e.target.value);
+              }}
               required
             />
             <Input
               type="password"
               placeholder="Password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                clearError();
+                setPassword(e.target.value);
+              }}
               required
             />
           </div>
@@ -280,6 +347,7 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
             type="button"
             className="underline underline-offset-4 hover:text-primary"
             onClick={() => {
+              clearError();
               setIsSignUp(!isSignUp);
               setShowResetPassword(false);
             }}
@@ -295,6 +363,7 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
               className="underline underline-offset-4 hover:text-primary"
               onClick={(e) => {
                 e.preventDefault();
+                clearError();
                 setShowResetPassword(true);
               }}
             >
