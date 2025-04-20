@@ -21,12 +21,17 @@ export async function uploadPDF(file: File): Promise<UploadResult | null> {
     const fileName = `${Date.now()}.${fileExt}`;
     const filePath = `${fileName}`;
 
+    console.log("Uploading file to storage:", filePath);
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('documents')
       .upload(filePath, file);
 
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      console.error("Storage upload error:", uploadError);
+      throw uploadError;
+    }
 
+    console.log("File uploaded successfully, inserting document record");
     const { data, error } = await supabase
       .from('documents')
       .insert({
@@ -36,7 +41,10 @@ export async function uploadPDF(file: File): Promise<UploadResult | null> {
       })
       .select('*');
 
-    if (error) throw error;
+    if (error) {
+      console.error("Document insert error:", error);
+      throw error;
+    }
 
     toast({
       title: "Upload Successful",
@@ -56,12 +64,14 @@ export async function uploadPDF(file: File): Promise<UploadResult | null> {
 }
 
 export async function fetchDocuments() {
+  console.log("Fetching documents from database");
   const { data, error } = await supabase
     .from('documents')
     .select('*')
     .order('created_at', { ascending: false });
 
   if (error) {
+    console.error("Document fetch error:", error);
     toast({
       title: "Error Fetching Documents",
       description: error.message,
@@ -70,6 +80,7 @@ export async function fetchDocuments() {
     return [];
   }
 
+  console.log("Documents fetched:", data ? data.length : 0);
   return data;
 }
 
