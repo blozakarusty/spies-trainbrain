@@ -115,10 +115,21 @@ export async function processDocument(documentId: string, question?: string) {
 export async function queryAllDocuments(question: string) {
   try {
     console.log("Querying across all documents");
-    // First, fetch all documents metadata
+    // Set a timeout for the query to prevent hanging on long operations
+    let timeoutId: number | undefined;
+    
+    // Create a promise that rejects after timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => {
+        reject(new Error("Query timed out after 30 seconds"));
+      }, 30000);
+    });
+    
+    // Get limited document metadata to reduce payload size
     const { data: documents, error: fetchError } = await supabase
       .from('documents')
-      .select('*');
+      .select('id, title, file_path, created_at')
+      .order('created_at', { ascending: false });
 
     if (fetchError) {
       console.error("Error fetching documents:", fetchError);
@@ -127,29 +138,16 @@ export async function queryAllDocuments(question: string) {
 
     console.log(`Found ${documents.length} documents to search through`);
     
-    // Log the first document to see what's available
-    if (documents.length > 0) {
-      const firstDoc = documents[0];
-      console.log("Sample document:", {
-        id: firstDoc.id,
-        title: firstDoc.title,
-        hasContent: !!firstDoc.content,
-        contentLength: firstDoc.content ? firstDoc.content.length : 0
-      });
-    }
-    
-    // Set a timeout to prevent hanging on long-running queries
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Query timed out after 60 seconds")), 60000);
-    });
-    
-    // Actual function call with timeout
+    // Create actual function call
     const functionPromise = supabase.functions.invoke('process-pdf', {
       body: { question, documents }
     });
     
-    // Race between the timeout and the actual function call
+    // Use Promise.race to implement timeout
     const result = await Promise.race([functionPromise, timeoutPromise]);
+    
+    // Clear timeout if function completes
+    if (timeoutId) clearTimeout(timeoutId);
     
     // @ts-ignore - TypeScript doesn't know that result is from functionPromise
     const { data, error } = result;
