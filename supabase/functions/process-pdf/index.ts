@@ -15,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { documentId } = await req.json();
+    const { documentId, question } = await req.json();
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
@@ -33,18 +33,36 @@ serve(async (req) => {
       throw new Error('Document not found');
     }
 
-    // Download PDF content
-    const { data: fileData, error: downloadError } = await supabase
-      .storage
-      .from('documents')
-      .download(document.file_path);
+    // If no content is stored yet, download and extract text from PDF
+    if (!document.content) {
+      const { data: fileData, error: downloadError } = await supabase
+        .storage
+        .from('documents')
+        .download(document.file_path);
 
-    if (downloadError) {
-      throw new Error('Error downloading PDF');
+      if (downloadError) {
+        throw new Error('Error downloading PDF');
+      }
+
+      const text = await fileData.text();
+
+      // Update document with content
+      const { error: updateError } = await supabase
+        .from('documents')
+        .update({ content: text })
+        .eq('id', documentId);
+
+      if (updateError) {
+        throw new Error('Error updating document content');
+      }
+
+      document.content = text;
     }
 
-    // Extract text content from PDF
-    const text = await fileData.text();
+    // If there's a specific question, use it in the prompt
+    const prompt = question
+      ? `Based on the following document content, please answer this question: "${question}"\n\nDocument content: ${document.content}`
+      : `Please analyze the following document content and provide a detailed summary: ${document.content}`;
 
     // Use OpenAI to analyze the content
     const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -54,38 +72,37 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: [
           {
             role: 'system',
-            content: 'You are an AI assistant that analyzes documents. Provide a concise summary and key points from the text.'
+            content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based on the document content.'
           },
           {
             role: 'user',
-            content: text
+            content: prompt
           }
         ],
-        max_tokens: 500
+        max_tokens: 1000
       }),
     });
 
     const analysisData = await openAIResponse.json();
     const analysis = analysisData.choices[0].message.content;
 
-    // Update document with content and analysis
-    const { error: updateError } = await supabase
-      .from('documents')
-      .update({
-        content: text,
-        analysis: analysis
-      })
-      .eq('id', documentId);
+    // If it's a general analysis (no specific question), store it
+    if (!question) {
+      const { error: updateError } = await supabase
+        .from('documents')
+        .update({ analysis })
+        .eq('id', documentId);
 
-    if (updateError) {
-      throw new Error('Error updating document analysis');
+      if (updateError) {
+        throw new Error('Error updating document analysis');
+      }
     }
 
-    return new Response(JSON.stringify({ success: true, analysis }), {
+    return new Response(JSON.stringify({ analysis }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {

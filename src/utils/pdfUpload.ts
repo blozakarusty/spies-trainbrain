@@ -1,4 +1,3 @@
-
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -81,18 +80,20 @@ export async function fetchDocuments() {
   return data;
 }
 
-export async function processDocument(documentId: string) {
+export async function processDocument(documentId: string, question?: string) {
   try {
     const { data, error } = await supabase.functions.invoke('process-pdf', {
-      body: { documentId }
+      body: { documentId, question }
     });
 
     if (error) throw error;
 
-    toast({
-      title: "Analysis Complete",
-      description: "Document has been processed successfully"
-    });
+    if (!question) {
+      toast({
+        title: "Analysis Complete",
+        description: "Document has been processed successfully"
+      });
+    }
 
     return data;
   } catch (error: any) {

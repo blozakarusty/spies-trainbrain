@@ -4,9 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { FileText, Upload } from "lucide-react";
+import { FileText, Upload, Send } from "lucide-react";
 import { uploadPDF, fetchDocuments, processDocument } from '@/utils/pdfUpload';
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 
 interface Document {
   id: string;
@@ -22,6 +23,9 @@ export const KnowledgeBase = () => {
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   useEffect(() => {
     loadDocuments();
@@ -65,11 +69,25 @@ export const KnowledgeBase = () => {
     }
   };
 
+  const handleAskQuestion = async () => {
+    if (!selectedDoc || !question.trim()) return;
+
+    setIsAnalyzing(true);
+    try {
+      const response = await processDocument(selectedDoc.id, question);
+      if (response) {
+        setAnswer(response.analysis);
+      }
+    } catch (error) {
+      console.error("Error asking question:", error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const filteredDocs = documents.filter((doc) => {
     const searchLower = searchQuery.toLowerCase();
-    return (
-      doc.title.toLowerCase().includes(searchLower)
-    );
+    return doc.title.toLowerCase().includes(searchLower);
   });
 
   return (
@@ -140,7 +158,10 @@ export const KnowledgeBase = () => {
                         className={`cursor-pointer transition-colors hover:bg-muted ${
                           selectedDoc?.id === doc.id ? 'border-primary' : ''
                         }`}
-                        onClick={() => setSelectedDoc(doc)}
+                        onClick={() => {
+                          setSelectedDoc(doc);
+                          setAnswer('');
+                        }}
                       >
                         <CardContent className="p-4">
                           <div className="flex items-center gap-3">
@@ -177,26 +198,53 @@ export const KnowledgeBase = () => {
             <ScrollArea className="h-[480px] w-full pr-4">
               {selectedDoc ? (
                 <div className="space-y-6">
-                  <div>
+                  <div className="space-y-4">
                     <p className="text-sm text-muted-foreground mb-2">
                       Uploaded on {new Date(selectedDoc.upload_date).toLocaleDateString()}
                     </p>
-                    {selectedDoc.analysis ? (
-                      <p className="text-muted-foreground whitespace-pre-wrap">
-                        {selectedDoc.analysis}
-                      </p>
-                    ) : (
-                      <div className="space-y-3">
-                        <Skeleton className="h-4 w-full" />
-                        <Skeleton className="h-4 w-[90%]" />
-                        <Skeleton className="h-4 w-[95%]" />
+                    {selectedDoc.analysis && (
+                      <div className="bg-muted p-4 rounded-lg">
+                        <h4 className="font-semibold mb-2">Document Summary</h4>
+                        <p className="text-muted-foreground whitespace-pre-wrap">
+                          {selectedDoc.analysis}
+                        </p>
                       </div>
                     )}
+                    <div className="space-y-4">
+                      <h4 className="font-semibold">Ask a Question</h4>
+                      <Textarea
+                        placeholder="What would you like to know about this document?"
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                      />
+                      <Button 
+                        onClick={handleAskQuestion}
+                        disabled={isAnalyzing || !question.trim()}
+                        className="w-full"
+                      >
+                        {isAnalyzing ? (
+                          "Analyzing..."
+                        ) : (
+                          <>
+                            <Send className="h-4 w-4 mr-2" />
+                            Ask Question
+                          </>
+                        )}
+                      </Button>
+                      {answer && (
+                        <div className="bg-muted p-4 rounded-lg mt-4">
+                          <h4 className="font-semibold mb-2">Answer</h4>
+                          <p className="text-muted-foreground whitespace-pre-wrap">
+                            {answer}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  Select a document to view its details
+                  Select a document to view its details and ask questions
                 </div>
               )}
             </ScrollArea>
