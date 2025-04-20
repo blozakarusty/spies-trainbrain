@@ -12,10 +12,10 @@ interface UploadResult {
   uploadData: any;
 }
 
-export async function uploadPDF(file: File, userId: string): Promise<UploadResult | null> {
+export async function uploadPDF(file: File): Promise<UploadResult | null> {
   try {
     const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}-${Date.now()}.${fileExt}`;
+    const fileName = `${Date.now()}.${fileExt}`;
     const filePath = `${fileName}`;
 
     const { data: uploadData, error: uploadError } = await supabase.storage
@@ -28,8 +28,7 @@ export async function uploadPDF(file: File, userId: string): Promise<UploadResul
       .from('documents')
       .insert({
         title: file.name,
-        file_path: filePath,
-        user_id: userId
+        file_path: filePath
       })
       .select('*');
 
@@ -52,11 +51,10 @@ export async function uploadPDF(file: File, userId: string): Promise<UploadResul
   }
 }
 
-export async function fetchUserDocuments(userId: string) {
+export async function fetchDocuments() {
   const { data, error } = await supabase
     .from('documents')
     .select('*')
-    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) {

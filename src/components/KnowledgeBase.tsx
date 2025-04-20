@@ -5,8 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileText, Upload } from "lucide-react";
-import { uploadPDF, fetchUserDocuments, processDocument } from '@/utils/pdfUpload';
-import { useAuth } from '@/components/auth/AuthProvider';
+import { uploadPDF, fetchDocuments, processDocument } from '@/utils/pdfUpload';
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface Document {
@@ -22,18 +21,22 @@ export const KnowledgeBase = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
-  const { user } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      loadDocuments();
-    }
-  }, [user]);
+    loadDocuments();
+  }, []);
 
   const loadDocuments = async () => {
-    if (!user) return;
-    const userDocs = await fetchUserDocuments(user.id);
-    setDocuments(userDocs);
+    setIsLoading(true);
+    try {
+      const docs = await fetchDocuments();
+      setDocuments(docs);
+    } catch (error) {
+      console.error("Error loading documents:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSearch = (query: string) => {
@@ -42,16 +45,22 @@ export const KnowledgeBase = () => {
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!user) return;
     const file = event.target.files?.[0];
     if (file) {
-      const result = await uploadPDF(file, user.id);
-      if (result && result.data && Array.isArray(result.data) && result.data.length > 0) {
-        const docId = result.data[0]?.id;
-        if (docId) {
-          await processDocument(docId);
-          await loadDocuments();
+      setIsLoading(true);
+      try {
+        const result = await uploadPDF(file);
+        if (result && result.data && Array.isArray(result.data) && result.data.length > 0) {
+          const docId = result.data[0]?.id;
+          if (docId) {
+            await processDocument(docId);
+            await loadDocuments();
+          }
         }
+      } catch (error) {
+        console.error("Upload error:", error);
+      } finally {
+        setIsLoading(false);
       }
     }
   };
@@ -101,34 +110,58 @@ export const KnowledgeBase = () => {
           <CardHeader>
             <CardTitle>Documents</CardTitle>
             <CardDescription>
-              {filteredDocs.length} documents found
+              {isLoading ? "Loading..." : `${filteredDocs.length} documents found`}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[480px] w-full pr-4">
-              <div className="space-y-4">
-                {filteredDocs.map((doc) => (
-                  <Card
-                    key={doc.id}
-                    className={`cursor-pointer transition-colors hover:bg-muted ${
-                      selectedDoc?.id === doc.id ? 'border-primary' : ''
-                    }`}
-                    onClick={() => setSelectedDoc(doc)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <FileText className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                          <h3 className="font-semibold">{doc.title}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {new Date(doc.upload_date).toLocaleDateString()}
-                          </p>
+              {isLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <Card key={i} className="cursor-pointer transition-colors hover:bg-muted">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <FileText className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <Skeleton className="h-4 w-32 mb-2" />
+                            <Skeleton className="h-3 w-24" />
+                          </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredDocs.length > 0 ? (
+                    filteredDocs.map((doc) => (
+                      <Card
+                        key={doc.id}
+                        className={`cursor-pointer transition-colors hover:bg-muted ${
+                          selectedDoc?.id === doc.id ? 'border-primary' : ''
+                        }`}
+                        onClick={() => setSelectedDoc(doc)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-3">
+                            <FileText className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                              <h3 className="font-semibold">{doc.title}</h3>
+                              <p className="text-sm text-muted-foreground">
+                                {new Date(doc.upload_date).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  ) : (
+                    <div className="flex items-center justify-center h-40 text-muted-foreground">
+                      No documents found. Upload a PDF to get started.
+                    </div>
+                  )}
+                </div>
+              )}
             </ScrollArea>
           </CardContent>
         </Card>
