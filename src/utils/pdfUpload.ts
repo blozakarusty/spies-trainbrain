@@ -12,6 +12,9 @@ interface UploadResult {
   uploadData: any;
 }
 
+// Using a constant user ID since we removed authentication
+const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000000";
+
 export async function uploadPDF(file: File): Promise<UploadResult | null> {
   try {
     const fileExt = file.name.split('.').pop();
@@ -28,7 +31,8 @@ export async function uploadPDF(file: File): Promise<UploadResult | null> {
       .from('documents')
       .insert({
         title: file.name,
-        file_path: filePath
+        file_path: filePath,
+        user_id: DEFAULT_USER_ID  // Adding the default user_id here
       })
       .select('*');
 
