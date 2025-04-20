@@ -115,6 +115,7 @@ export async function processDocument(documentId: string, question?: string) {
 export async function queryAllDocuments(question: string) {
   try {
     console.log("Querying across all documents");
+    // First, fetch all documents metadata
     const { data: documents, error: fetchError } = await supabase
       .from('documents')
       .select('*');
@@ -136,10 +137,22 @@ export async function queryAllDocuments(question: string) {
         contentLength: firstDoc.content ? firstDoc.content.length : 0
       });
     }
-
-    const { data, error } = await supabase.functions.invoke('process-pdf', {
+    
+    // Set a timeout to prevent hanging on long-running queries
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Query timed out after 60 seconds")), 60000);
+    });
+    
+    // Actual function call with timeout
+    const functionPromise = supabase.functions.invoke('process-pdf', {
       body: { question, documents }
     });
+    
+    // Race between the timeout and the actual function call
+    const result = await Promise.race([functionPromise, timeoutPromise]);
+    
+    // @ts-ignore - TypeScript doesn't know that result is from functionPromise
+    const { data, error } = result;
 
     if (error) {
       console.error("Process PDF function error:", error);
