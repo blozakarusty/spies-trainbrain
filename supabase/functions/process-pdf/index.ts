@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.5.0";
@@ -8,9 +7,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CHUNK_SIZE = 4000; // Smaller chunk size to prevent memory issues
-const MAX_CHUNKS_PER_ANALYSIS = 3; // Limit number of chunks per analysis even further
-const MAX_DOCUMENT_SAMPLE = 2; // Max number of documents to sample in multi-doc search
+const CHUNK_SIZE = 4000; // Keeping the smaller chunk size
+const MAX_CHUNKS_PER_ANALYSIS = 3; // Limit the number of chunks per analysis
+const MAX_DOCUMENT_SAMPLE = 3; // Slightly increased sample size
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -33,8 +32,9 @@ serve(async (req) => {
     // If documents array is provided, we're doing a cross-document search
     if (documents) {
       console.log("Processing cross-document search for query:", question);
+      console.log("Question content:", question);
       
-      // Take a smaller sample of documents to prevent memory issues
+      // Take sample of documents
       const documentSample = documents.slice(0, MAX_DOCUMENT_SAMPLE);
       console.log(`Processing ${documentSample.length} documents (sample from ${documents.length} total)`);
       
@@ -94,30 +94,52 @@ serve(async (req) => {
           continue;
         }
         
+        console.log(`Document ${doc.id} content length: ${docContent.length} bytes`);
+        
         // Split content into smaller chunks to avoid memory issues
         const chunks = chunkText(docContent, CHUNK_SIZE);
         console.log(`Document ${doc.id} split into ${chunks.length} chunks`);
         
-        // Only process a limited subset of chunks to avoid memory issues
-        const chunksToProcess = chunks.slice(0, MAX_CHUNKS_PER_ANALYSIS);
-        console.log(`Processing ${chunksToProcess.length} chunks from document ${doc.id}`);
+        // Process a limited subset of chunks - but we now add the first chunk anyway
+        // as it often contains important introductory information
+        const firstChunk = chunks.length > 0 ? chunks[0] : null;
+        const chunksToProcess = chunks.slice(1, MAX_CHUNKS_PER_ANALYSIS + 1);
+        
+        if (firstChunk) {
+          console.log(`Adding first chunk from document ${doc.id} (introductory content)`);
+          relevantContentChunks.push(`Document "${doc.title}" (introduction):\n${firstChunk.substring(0, 1500)}`);
+        }
+        
+        console.log(`Processing ${chunksToProcess.length} additional chunks from document ${doc.id}`);
         
         for (const chunk of chunksToProcess) {
-          // Quickly check relevance (use smaller model)
+          // For smaller documents, just include all chunks without checking relevance
+          if (chunks.length <= 2) {
+            console.log(`Document ${doc.id} is small, adding chunk without relevance check`);
+            relevantContentChunks.push(`Document "${doc.title}":\n${chunk.substring(0, 1500)}`);
+            continue;
+          }
+          
+          // Otherwise check relevance
           try {
+            console.log(`Checking relevance for chunk in document ${doc.id}`);
             const relevanceCheck = await checkRelevance(chunk, question);
+            console.log(`Relevance check result:`, relevanceCheck);
+            
             if (relevanceCheck.isRelevant) {
               console.log(`Found relevant content in document ${doc.id}`);
               relevantContentChunks.push(`Document "${doc.title}":\n${relevanceCheck.excerpt}`);
-              
-              // Limit the number of chunks we collect to prevent memory issues
-              if (relevantContentChunks.length >= 5) {
-                console.log("Reached maximum relevant chunks limit, stopping collection");
-                break;
-              }
+            }
+            
+            // Limit the number of chunks we collect
+            if (relevantContentChunks.length >= 5) {
+              console.log("Reached maximum relevant chunks limit, stopping collection");
+              break;
             }
           } catch (relevanceError) {
             console.error(`Error checking relevance for chunk in document ${doc.id}:`, relevanceError);
+            // If relevance check fails, include the chunk anyway
+            relevantContentChunks.push(`Document "${doc.title}" (relevance check failed):\n${chunk.substring(0, 1500)}`);
           }
         }
         
@@ -130,20 +152,30 @@ serve(async (req) => {
       
       console.log("Relevant content chunks collected:", relevantContentChunks.length);
       
+      // If no relevant chunks found, but we have documents, include some content anyway
+      if (relevantContentChunks.length === 0 && documentSample.length > 0) {
+        console.log("No specifically relevant chunks found, using first parts of documents anyway");
+        for (const doc of documentSample.slice(0, 2)) {
+          if (doc.content && doc.content.length > 0) {
+            relevantContentChunks.push(`Document "${doc.title}" (sample):\n${doc.content.substring(0, 1500)}`);
+          }
+        }
+      }
+      
       if (relevantContentChunks.length === 0) {
-        console.log("No relevant content found in any document");
+        console.log("No content available in any document");
         return new Response(JSON.stringify({ 
-          analysis: "I've analyzed the available documents, but couldn't find relevant information to answer your question." 
+          analysis: "I wasn't able to find any information in the available documents to answer your question." 
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
       
       // Combine relevant chunks but limit total size
-      const combinedContent = relevantContentChunks.slice(0, 3).join('\n\n');
+      const combinedContent = relevantContentChunks.join('\n\n');
       console.log("Combined relevant content size:", combinedContent.length, "bytes");
 
-      const prompt = `Based on the following relevant excerpts from documents, please analyze and answer this question: "${question}"\n\nIf you cannot find information to answer with high confidence, say so clearly. Don't make up information that isn't in the documents.\n\nRelevant excerpts:\n${combinedContent}`;
+      const prompt = `Based on the following excerpts from documents, please analyze and answer this question: "${question}"\n\nIf you cannot find information to answer with high confidence, say so clearly. Don't make up information that isn't in the documents.\n\nRelevant excerpts:\n${combinedContent}`;
 
       console.log("Sending request to OpenAI with prompt size:", prompt.length, "bytes");
       try {
@@ -154,7 +186,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini', // Use smaller model to prevent memory issues
+            model: 'gpt-4o-mini',
             messages: [
               {
                 role: 'system',
@@ -165,7 +197,7 @@ serve(async (req) => {
                 content: prompt
               }
             ],
-            max_tokens: 600
+            max_tokens: 800
           }),
         });
 
@@ -232,8 +264,11 @@ serve(async (req) => {
                 .update({ content: docContent })
                 .eq('id', documentId);
                 
-              if (error) console.error("Document update error:", error);
-              else console.log("Updated document content in database");
+              if (error) {
+                console.error("Document update error:", error);
+              } else {
+                console.log("Updated document content in database");
+              }
             } catch (updateError) {
               console.error("Exception updating document content:", updateError);
             }
@@ -248,21 +283,101 @@ serve(async (req) => {
       }
     }
 
-    // Process document content in chunks
-    const chunks = chunkText(docContent || "", CHUNK_SIZE);
-    console.log(`Document split into ${chunks.length} chunks for processing`);
+    console.log("Document content length:", docContent ? docContent.length : 0, "bytes");
     
-    // Limit the number of chunks we process to prevent memory issues
-    const chunksToProcess = chunks.slice(0, MAX_CHUNKS_PER_ANALYSIS);
-    console.log(`Processing ${chunksToProcess.length} chunks from document`);
+    // For empty documents, return an appropriate message
+    if (!docContent || docContent.trim() === '') {
+      console.log("Document content is empty or could not be extracted");
+      return new Response(JSON.stringify({ 
+        analysis: "I couldn't extract any text content from this document. It might be an image-only PDF or in a format that's not supported." 
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Process document content in chunks
+    const chunks = chunkText(docContent, CHUNK_SIZE);
+    console.log(`Document split into ${chunks.length} chunks for processing`);
     
     // If there's a specific question, find relevant chunks and answer
     if (question) {
+      console.log("Question content:", question);
+      
+      // For smaller documents, just process everything instead of checking relevance
+      if (chunks.length <= 2) {
+        console.log("Document is small, processing entire content without relevance checks");
+        const contentForAnalysis = docContent.length > CHUNK_SIZE * 2 
+          ? docContent.substring(0, CHUNK_SIZE * 2) 
+          : docContent;
+        
+        const prompt = `Based on the following document content, please answer this question: "${question}"\n\nDocument content: ${contentForAnalysis}`;
+
+        console.log("Sending request to OpenAI with prompt size:", prompt.length, "bytes");
+        try {
+          const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                {
+                  role: 'system',
+                  content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based on the document content. If information is not available in the document, clearly state this fact.'
+                },
+                {
+                  role: 'user',
+                  content: prompt
+                }
+              ],
+              max_tokens: 800
+            }),
+          });
+
+          if (!openAIResponse.ok) {
+            const errorData = await openAIResponse.text();
+            console.error("OpenAI API error:", errorData);
+            throw new Error(`OpenAI API error: ${openAIResponse.status} ${errorData}`);
+          }
+
+          const analysisData = await openAIResponse.json();
+          const analysis = analysisData.choices[0].message.content;
+          console.log("Received analysis from OpenAI, length:", analysis.length);
+
+          return new Response(JSON.stringify({ analysis }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } catch (openAIError) {
+          console.error("Error calling OpenAI API:", openAIError);
+          return new Response(JSON.stringify({ 
+            analysis: "I encountered an error processing your question. Please try again with a simpler query." 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      
+      // For larger documents, use relevance checking
+      // Limit the number of chunks we process
+      const chunksToProcess = chunks.slice(0, MAX_CHUNKS_PER_ANALYSIS + 1);
+      console.log(`Processing ${chunksToProcess.length} chunks from document for relevance`);
+      
       const relevantChunks = [];
       
-      for (const chunk of chunksToProcess) {
+      // Always include the first chunk as it often contains important context
+      if (chunks.length > 0) {
+        console.log("Adding first chunk (introduction) without relevance check");
+        relevantChunks.push(chunks[0].substring(0, 1500));
+      }
+      
+      for (const chunk of chunksToProcess.slice(1)) {
         try {
+          console.log("Checking relevance for chunk");
           const relevanceCheck = await checkRelevance(chunk, question);
+          console.log("Relevance check result:", relevanceCheck);
+          
           if (relevanceCheck.isRelevant) {
             relevantChunks.push(relevanceCheck.excerpt);
             
@@ -274,6 +389,9 @@ serve(async (req) => {
           }
         } catch (relevanceError) {
           console.error("Error checking relevance:", relevanceError);
+          // If relevance check fails, include the chunk anyway
+          relevantChunks.push(chunk.substring(0, 1500));
+          console.log("Added chunk despite relevance check failure");
         }
       }
       
@@ -305,7 +423,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini', // Use smaller model to prevent memory issues
+            model: 'gpt-4o-mini',
             messages: [
               {
                 role: 'system',
@@ -316,7 +434,7 @@ serve(async (req) => {
                 content: prompt
               }
             ],
-            max_tokens: 600
+            max_tokens: 800
           }),
         });
 
@@ -328,7 +446,7 @@ serve(async (req) => {
 
         const analysisData = await openAIResponse.json();
         const analysis = analysisData.choices[0].message.content;
-        console.log("Received analysis from OpenAI");
+        console.log("Received analysis from OpenAI, length:", analysis.length);
 
         return new Response(JSON.stringify({ analysis }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -344,7 +462,7 @@ serve(async (req) => {
     } else {
       // General analysis for document summary
       // Only use first few chunks to prevent memory issues
-      const summaryChunks = chunksToProcess.slice(0, 2);
+      const summaryChunks = chunks.slice(0, 2);
       const summaryContent = summaryChunks.join('\n\n');
       
       console.log("Generating summary with content length:", summaryContent.length, "bytes");
@@ -360,7 +478,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini', // Use smaller model to prevent memory issues
+            model: 'gpt-4o-mini',
             messages: [
               {
                 role: 'system',
@@ -371,7 +489,7 @@ serve(async (req) => {
                 content: prompt
               }
             ],
-            max_tokens: 500
+            max_tokens: 800
           }),
         });
 
@@ -383,7 +501,7 @@ serve(async (req) => {
 
         const analysisData = await openAIResponse.json();
         const analysis = analysisData.choices[0].message.content;
-        console.log("Received summary from OpenAI");
+        console.log("Received summary from OpenAI, length:", analysis.length);
 
         // Store the analysis in a safe way
         console.log("Storing analysis in database");
@@ -447,7 +565,7 @@ async function checkRelevance(chunk, question) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',  // Using smaller model for relevance checks
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -458,7 +576,7 @@ async function checkRelevance(chunk, question) {
             content: `Question: "${question}"\n\nText to check:\n${previewText}`
           }
         ],
-        max_tokens: 150,
+        max_tokens: 200,
         temperature: 0.1
       }),
     });
@@ -471,6 +589,7 @@ async function checkRelevance(chunk, question) {
 
     const data = await response.json();
     const result = data.choices[0].message.content;
+    console.log("Raw relevance check result:", result);
     
     try {
       // Try to parse the JSON response

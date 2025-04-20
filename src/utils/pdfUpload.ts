@@ -86,12 +86,12 @@ export async function processDocument(documentId: string, question?: string) {
     console.log(`Processing document ${documentId}${question ? ' with question' : ''}`);
     
     // Add a timeout for the function call
-    const timeoutMs = 25000; // 25 seconds
+    const timeoutMs = 30000; // 30 seconds
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("Processing timed out after 25 seconds"));
+        reject(new Error("Processing timed out after 30 seconds"));
       }, timeoutMs);
     });
     
@@ -123,7 +123,7 @@ export async function processDocument(documentId: string, question?: string) {
     console.error('Document Processing Error:', error);
     toast({
       title: "Processing Failed",
-      description: error.message || "Document was too large to process",
+      description: error.message || "Document processing failed. Please try again.",
       variant: "destructive"
     });
     return null;
@@ -134,21 +134,20 @@ export async function queryAllDocuments(question: string) {
   try {
     console.log("Querying across all documents");
     // Set a timeout for the query to prevent hanging on long operations
-    const timeoutMs = 25000; // 25 seconds
+    const timeoutMs = 30000; // 30 seconds
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("Query timed out after 25 seconds"));
+        reject(new Error("Query timed out after 30 seconds"));
       }, timeoutMs);
     });
     
-    // Get limited document metadata to reduce payload size
+    // Get document metadata to reduce payload size
     const { data: documents, error: fetchError } = await supabase
       .from('documents')
-      .select('id, title, file_path, created_at')
-      .order('created_at', { ascending: false })
-      .limit(5); // Limit to 5 most recent documents to reduce payload size
+      .select('id, title, file_path, created_at, content')
+      .order('created_at', { ascending: false });
 
     if (fetchError) {
       console.error("Error fetching documents:", fetchError);
@@ -178,7 +177,7 @@ export async function queryAllDocuments(question: string) {
     console.error('Document Query Error:', error);
     toast({
       title: "Query Failed",
-      description: error.message || "Documents were too large to process",
+      description: error.message || "Query processing failed. Please try again.",
       variant: "destructive"
     });
     return null;
