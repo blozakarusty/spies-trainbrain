@@ -18,7 +18,7 @@ export type Database = {
           id: string
           title: string
           upload_date: string | null
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           analysis?: string | null
@@ -28,7 +28,7 @@ export type Database = {
           id?: string
           title: string
           upload_date?: string | null
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           analysis?: string | null
@@ -38,7 +38,7 @@ export type Database = {
           id?: string
           title?: string
           upload_date?: string | null
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: []
       }
