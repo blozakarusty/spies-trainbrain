@@ -84,9 +84,27 @@ export async function fetchDocuments() {
 export async function processDocument(documentId: string, question?: string) {
   try {
     console.log(`Processing document ${documentId}${question ? ' with question' : ''}`);
-    const { data, error } = await supabase.functions.invoke('process-pdf', {
+    
+    // Add a timeout for the function call
+    const timeoutMs = 25000; // 25 seconds
+    
+    // Create a promise that rejects after timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error("Processing timed out after 25 seconds"));
+      }, timeoutMs);
+    });
+    
+    // Actual function call
+    const functionPromise = supabase.functions.invoke('process-pdf', {
       body: { documentId, question }
     });
+    
+    // Use Promise.race to implement timeout
+    const result = await Promise.race([functionPromise, timeoutPromise]);
+    
+    // @ts-ignore - TypeScript doesn't know that result is from functionPromise
+    const { data, error } = result;
 
     if (error) {
       console.error("Process PDF function error:", error);
@@ -105,7 +123,7 @@ export async function processDocument(documentId: string, question?: string) {
     console.error('Document Processing Error:', error);
     toast({
       title: "Processing Failed",
-      description: error.message || "Unknown error occurred",
+      description: error.message || "Document was too large to process",
       variant: "destructive"
     });
     return null;
@@ -116,20 +134,21 @@ export async function queryAllDocuments(question: string) {
   try {
     console.log("Querying across all documents");
     // Set a timeout for the query to prevent hanging on long operations
-    let timeoutId: number | undefined;
+    const timeoutMs = 25000; // 25 seconds
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = window.setTimeout(() => {
-        reject(new Error("Query timed out after 30 seconds"));
-      }, 30000);
+      setTimeout(() => {
+        reject(new Error("Query timed out after 25 seconds"));
+      }, timeoutMs);
     });
     
     // Get limited document metadata to reduce payload size
     const { data: documents, error: fetchError } = await supabase
       .from('documents')
       .select('id, title, file_path, created_at')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(5); // Limit to 5 most recent documents to reduce payload size
 
     if (fetchError) {
       console.error("Error fetching documents:", fetchError);
@@ -146,9 +165,6 @@ export async function queryAllDocuments(question: string) {
     // Use Promise.race to implement timeout
     const result = await Promise.race([functionPromise, timeoutPromise]);
     
-    // Clear timeout if function completes
-    if (timeoutId) clearTimeout(timeoutId);
-    
     // @ts-ignore - TypeScript doesn't know that result is from functionPromise
     const { data, error } = result;
 
@@ -162,7 +178,7 @@ export async function queryAllDocuments(question: string) {
     console.error('Document Query Error:', error);
     toast({
       title: "Query Failed",
-      description: error.message || "Unknown error occurred",
+      description: error.message || "Documents were too large to process",
       variant: "destructive"
     });
     return null;
