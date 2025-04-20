@@ -16,7 +16,8 @@ export const AuthForm = ({ showResetPassword: initialShowResetPassword = false, 
     setShowResetPassword(false);
   };
 
-  const handleForgotPassword = () => {
+  const handleForgotPassword = (email: string) => {
+    setEmail(email);
     setShowResetPassword(true);
   };
 

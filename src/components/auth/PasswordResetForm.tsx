@@ -14,8 +14,9 @@ interface PasswordResetFormProps {
   onBackToSignIn: () => void;
 }
 
-export const PasswordResetForm = ({ email, recoveryToken, onBackToSignIn }: PasswordResetFormProps) => {
+export const PasswordResetForm = ({ email: initialEmail, recoveryToken, onBackToSignIn }: PasswordResetFormProps) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [email, setEmail] = useState(initialEmail);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -117,7 +118,7 @@ export const PasswordResetForm = ({ email, recoveryToken, onBackToSignIn }: Pass
               type="email"
               placeholder="Email"
               value={email}
-              onChange={() => {}} // Email is controlled by parent
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
           )}
