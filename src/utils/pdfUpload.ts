@@ -1,3 +1,4 @@
+
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -82,11 +83,15 @@ export async function fetchDocuments() {
 
 export async function processDocument(documentId: string, question?: string) {
   try {
+    console.log(`Processing document ${documentId}${question ? ' with question' : ''}`);
     const { data, error } = await supabase.functions.invoke('process-pdf', {
       body: { documentId, question }
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error("Process PDF function error:", error);
+      throw error;
+    }
 
     if (!question) {
       toast({
@@ -97,42 +102,46 @@ export async function processDocument(documentId: string, question?: string) {
 
     return data;
   } catch (error: any) {
+    console.error('Document Processing Error:', error);
     toast({
       title: "Processing Failed",
-      description: error.message,
+      description: error.message || "Unknown error occurred",
       variant: "destructive"
     });
-    console.error('Document Processing Error:', error);
     return null;
   }
 }
 
 export async function queryAllDocuments(question: string) {
   try {
-    const { data: documents, error } = await supabase
+    console.log("Querying across all documents");
+    const { data: documents, error: fetchError } = await supabase
       .from('documents')
       .select('*');
 
-    if (error) {
-      console.error("Error fetching documents:", error);
-      throw error;
+    if (fetchError) {
+      console.error("Error fetching documents:", fetchError);
+      throw fetchError;
     }
 
-    console.log("Querying across all documents");
-    const response = await supabase.functions.invoke('process-pdf', {
+    console.log(`Found ${documents.length} documents to search through`);
+    const { data, error } = await supabase.functions.invoke('process-pdf', {
       body: { question, documents }
     });
 
-    if (response.error) throw response.error;
+    if (error) {
+      console.error("Process PDF function error:", error);
+      throw error;
+    }
 
-    return response.data;
+    return data;
   } catch (error: any) {
+    console.error('Document Query Error:', error);
     toast({
       title: "Query Failed",
-      description: error.message,
+      description: error.message || "Unknown error occurred",
       variant: "destructive"
     });
-    console.error('Document Query Error:', error);
     return null;
   }
 }

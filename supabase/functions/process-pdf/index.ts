@@ -1,5 +1,7 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.5.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,6 +22,7 @@ serve(async (req) => {
 
     // If documents array is provided, we're doing a cross-document search
     if (documents) {
+      console.log("Processing cross-document search for query:", question);
       const combinedContent = documents
         .map(doc => `Document "${doc.title}":\n${doc.content || ''}`)
         .join('\n\n');
@@ -57,6 +60,7 @@ serve(async (req) => {
     }
 
     // Get document details
+    console.log("Processing single document with ID:", documentId);
     const { data: document, error: docError } = await supabase
       .from('documents')
       .select('*')
@@ -64,21 +68,25 @@ serve(async (req) => {
       .single();
 
     if (docError || !document) {
+      console.error("Document not found:", docError);
       throw new Error('Document not found');
     }
 
     // If no content is stored yet, download and extract text from PDF
     if (!document.content) {
+      console.log("No content found, downloading PDF from storage");
       const { data: fileData, error: downloadError } = await supabase
         .storage
         .from('documents')
         .download(document.file_path);
 
       if (downloadError) {
+        console.error("Storage download error:", downloadError);
         throw new Error('Error downloading PDF');
       }
 
       const text = await fileData.text();
+      console.log("Extracted text from PDF, length:", text.length);
 
       // Update document with content
       const { error: updateError } = await supabase
@@ -87,6 +95,7 @@ serve(async (req) => {
         .eq('id', documentId);
 
       if (updateError) {
+        console.error("Document update error:", updateError);
         throw new Error('Error updating document content');
       }
 
@@ -98,6 +107,7 @@ serve(async (req) => {
       ? `Based on the following document content, please answer this question: "${question}"\n\nDocument content: ${document.content}`
       : `Please analyze the following document content and provide a detailed summary: ${document.content}`;
 
+    console.log("Sending request to OpenAI");
     // Use OpenAI to analyze the content
     const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -123,15 +133,18 @@ serve(async (req) => {
 
     const analysisData = await openAIResponse.json();
     const analysis = analysisData.choices[0].message.content;
+    console.log("Received analysis from OpenAI");
 
     // If it's a general analysis (no specific question), store it
     if (!question) {
+      console.log("Storing analysis in database");
       const { error: updateError } = await supabase
         .from('documents')
         .update({ analysis })
         .eq('id', documentId);
 
       if (updateError) {
+        console.error("Error updating document analysis:", updateError);
         throw new Error('Error updating document analysis');
       }
     }
