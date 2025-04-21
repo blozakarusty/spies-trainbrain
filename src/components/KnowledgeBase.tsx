@@ -4,19 +4,30 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { FileText, Upload, Send } from "lucide-react";
-import { uploadPDF, fetchDocuments, processDocument, queryAllDocuments } from '@/utils/pdfUpload';
+import { FileText, Upload, Send, Trash2, RefreshCw } from "lucide-react";
+import { uploadPDF, fetchDocuments, processDocument, queryAllDocuments, deleteDocument } from '@/utils/pdfUpload';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface Document {
   id: string;
   title: string;
   file_path: string;
   upload_date: string;
-  analysis?: string;
   content?: string;
+  analysis?: string;
 }
 
 export const KnowledgeBase = () => {
@@ -32,6 +43,8 @@ export const KnowledgeBase = () => {
   const [globalAnswer, setGlobalAnswer] = useState('');
   const [globalAnswerModel, setGlobalAnswerModel] = useState('');
   const [isSearchingAll, setIsSearchingAll] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
 
   useEffect(() => {
     loadDocuments();
@@ -72,6 +85,28 @@ export const KnowledgeBase = () => {
       } finally {
         setIsLoading(false);
       }
+    }
+  };
+
+  const handleDeleteDocument = async (document: Document) => {
+    setIsDeleting(true);
+    try {
+      const success = await deleteDocument(document.id, document.file_path);
+      if (success) {
+        // If the deleted document was selected, clear selection
+        if (selectedDoc && selectedDoc.id === document.id) {
+          setSelectedDoc(null);
+          setAnswer('');
+          setAnswerModel('');
+        }
+        // Refresh document list
+        await loadDocuments();
+      }
+    } catch (error) {
+      console.error("Error deleting document:", error);
+    } finally {
+      setIsDeleting(false);
+      setDocumentToDelete(null);
     }
   };
 
@@ -121,7 +156,18 @@ export const KnowledgeBase = () => {
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-4">TrainBrain</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-3xl font-bold">TrainBrain</h1>
+          <Button 
+            variant="outline"
+            size="sm"
+            onClick={loadDocuments}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
         <div className="flex gap-4">
           <Input
             type="text"
@@ -230,24 +276,70 @@ export const KnowledgeBase = () => {
                     filteredDocs.map((doc) => (
                       <Card
                         key={doc.id}
-                        className={`cursor-pointer transition-colors hover:bg-muted ${
+                        className={`transition-colors hover:bg-muted ${
                           selectedDoc?.id === doc.id ? 'border-primary' : ''
                         }`}
-                        onClick={() => {
-                          setSelectedDoc(doc);
-                          setAnswer('');
-                          setAnswerModel('');
-                        }}
                       >
                         <CardContent className="p-4">
-                          <div className="flex items-center gap-3">
-                            <FileText className="h-5 w-5 text-muted-foreground" />
-                            <div>
-                              <h3 className="font-semibold">{doc.title}</h3>
-                              <p className="text-sm text-muted-foreground">
-                                {new Date(doc.upload_date).toLocaleDateString()}
-                              </p>
+                          <div className="flex items-center justify-between">
+                            <div 
+                              className="flex items-center gap-3 cursor-pointer flex-1"
+                              onClick={() => {
+                                setSelectedDoc(doc);
+                                setAnswer('');
+                                setAnswerModel('');
+                              }}
+                            >
+                              <FileText className="h-5 w-5 text-muted-foreground" />
+                              <div>
+                                <h3 className="font-semibold">{doc.title}</h3>
+                                <p className="text-sm text-muted-foreground">
+                                  {new Date(doc.upload_date).toLocaleDateString()}
+                                </p>
+                                {doc.content && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {doc.content.length} characters extracted
+                                  </p>
+                                )}
+                              </div>
                             </div>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDocumentToDelete(doc);
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="sr-only">Delete</span>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Document</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to delete "{doc.title}"? This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-red-500 hover:bg-red-600"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      handleDeleteDocument(doc);
+                                    }}
+                                    disabled={isDeleting}
+                                  >
+                                    {isDeleting ? "Deleting..." : "Delete"}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </div>
                         </CardContent>
                       </Card>
@@ -278,6 +370,18 @@ export const KnowledgeBase = () => {
                     <p className="text-sm text-muted-foreground mb-2">
                       Uploaded on {new Date(selectedDoc.upload_date).toLocaleDateString()}
                     </p>
+                    {selectedDoc.content && (
+                      <div className="bg-muted p-4 rounded-lg mb-4">
+                        <h4 className="font-semibold mb-2">Extracted Text Preview</h4>
+                        <p className="text-muted-foreground text-sm whitespace-pre-wrap">
+                          {selectedDoc.content.slice(0, 300)}
+                          {selectedDoc.content.length > 300 && '...'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {selectedDoc.content.length} characters extracted
+                        </p>
+                      </div>
+                    )}
                     {selectedDoc.analysis && (
                       <div className="bg-muted p-4 rounded-lg">
                         <h4 className="font-semibold mb-2">Document Summary</h4>

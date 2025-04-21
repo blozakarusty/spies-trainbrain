@@ -1,6 +1,10 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set up PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
 
 interface UploadResult {
   data: Array<{
@@ -12,8 +16,54 @@ interface UploadResult {
   uploadData: any;
 }
 
+// Function to extract text from PDF using PDF.js
+async function extractTextFromPDF(file: File): Promise<string> {
+  try {
+    // Convert file to ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+    
+    // Load PDF document
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    
+    console.log(`PDF loaded with ${pdf.numPages} pages`);
+    
+    // Extract text from each page
+    let fullText = '';
+    
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      
+      fullText += pageText + '\n\n';
+      console.log(`Page ${i} extracted, length: ${pageText.length} chars`);
+    }
+    
+    console.log(`Total extracted text length: ${fullText.length} chars`);
+    
+    if (fullText.trim().length === 0) {
+      console.warn("No text content was extracted from the PDF. It might be an image-based/scanned PDF.");
+      return "This appears to be an image-based PDF. Text content could not be extracted automatically.";
+    }
+    
+    return fullText;
+  } catch (error) {
+    console.error("Error extracting text from PDF:", error);
+    return "Error extracting text content from PDF.";
+  }
+}
+
 export async function uploadPDF(file: File): Promise<UploadResult | null> {
   try {
+    // Extract text content from PDF first
+    console.log("Extracting text content from PDF");
+    const extractedText = await extractTextFromPDF(file);
+    console.log(`Extracted text length: ${extractedText.length} chars`);
+    
+    // Prepare file for upload
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}.${fileExt}`;
     const filePath = `${fileName}`;
@@ -28,12 +78,13 @@ export async function uploadPDF(file: File): Promise<UploadResult | null> {
       throw uploadError;
     }
 
-    console.log("File uploaded successfully, inserting document record");
+    console.log("File uploaded successfully, inserting document record with extracted text");
     const { data, error } = await supabase
       .from('documents')
       .insert({
         title: file.name,
         file_path: filePath,
+        content: extractedText, // Store the extracted text in the content field
       })
       .select('*');
 
@@ -44,7 +95,7 @@ export async function uploadPDF(file: File): Promise<UploadResult | null> {
 
     toast({
       title: "Upload Successful",
-      description: `${file.name} has been uploaded`
+      description: `${file.name} has been uploaded and text extracted (${extractedText.length} characters)`
     });
 
     return { uploadData, data };
@@ -78,6 +129,48 @@ export async function fetchDocuments() {
 
   console.log("Documents fetched:", data ? data.length : 0);
   return data;
+}
+
+export async function deleteDocument(documentId: string, filePath: string) {
+  try {
+    console.log(`Deleting document ${documentId} with file path ${filePath}`);
+    
+    // Delete from storage first
+    const { error: storageError } = await supabase.storage
+      .from('documents')
+      .remove([filePath]);
+      
+    if (storageError) {
+      console.error("Storage delete error:", storageError);
+      throw storageError;
+    }
+    
+    // Delete from database
+    const { error: dbError } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', documentId);
+      
+    if (dbError) {
+      console.error("Database delete error:", dbError);
+      throw dbError;
+    }
+    
+    toast({
+      title: "Document Deleted",
+      description: "Document has been removed successfully"
+    });
+    
+    return true;
+  } catch (error: any) {
+    console.error('Document Delete Error:', error);
+    toast({
+      title: "Delete Failed",
+      description: error.message,
+      variant: "destructive"
+    });
+    return false;
+  }
 }
 
 export async function processDocument(documentId: string, question?: string) {
@@ -150,7 +243,7 @@ export async function queryAllDocuments(question: string) {
     // Get document metadata to prepare for query
     const { data: documents, error: fetchError } = await supabase
       .from('documents')
-      .select('id, title, file_path, created_at')
+      .select('id, title, file_path, content, created_at')
       .order('created_at', { ascending: false });
 
     if (fetchError) {

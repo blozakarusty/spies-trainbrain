@@ -48,57 +48,65 @@ serve(async (req) => {
         console.log(`Processing document: ${doc.id} - ${doc.title}`);
         documentMetadata += `- ${doc.title}\n`;
         
-        let docContent;
+        // First, try to use the pre-extracted text content
+        let docContent = doc.content;
         
-        // Download document content from storage
-        try {
-          console.log(`Downloading document ${doc.id} from storage`);
-          const { data: fileData, error: downloadError } = await supabase
-            .storage
-            .from('documents')
-            .download(doc.file_path);
-
-          if (downloadError) {
-            console.error(`Storage download error for document ${doc.id}:`, downloadError);
-            continue;
-          }
-
-          // Extract all text content from the file
+        // If content is not available or empty, try to get it
+        if (!docContent || docContent.trim() === '') {
+          console.log(`No pre-extracted content for document ${doc.id}, attempting to download from storage`);
+          
+          // Download document content from storage
           try {
-            const arrayBuffer = await fileData.arrayBuffer();
-            const decoder = new TextDecoder("utf-8");
-            
+            console.log(`Downloading document ${doc.id} from storage`);
+            const { data: fileData, error: downloadError } = await supabase
+              .storage
+              .from('documents')
+              .download(doc.file_path);
+
+            if (downloadError) {
+              console.error(`Storage download error for document ${doc.id}:`, downloadError);
+              continue;
+            }
+
+            // Extract all text content from the file
             try {
-              // Try to decode as UTF-8
-              docContent = decoder.decode(arrayBuffer);
-            } catch (e) {
-              console.error(`UTF-8 decoding failed for document ${doc.id}, trying as binary:`, e);
+              const arrayBuffer = await fileData.arrayBuffer();
+              const decoder = new TextDecoder("utf-8");
               
-              // If UTF-8 fails, try to extract text in a way that preserves as much content as possible
-              // This just extracts readable characters
-              const bytes = new Uint8Array(arrayBuffer);
-              docContent = Array.from(bytes)
-                .map(byte => byte >= 32 && byte < 127 ? String.fromCharCode(byte) : ' ')
-                .join('');
+              try {
+                // Try to decode as UTF-8
+                docContent = decoder.decode(arrayBuffer);
+              } catch (e) {
+                console.error(`UTF-8 decoding failed for document ${doc.id}, trying as binary:`, e);
+                
+                // If UTF-8 fails, try to extract text in a way that preserves as much content as possible
+                // This just extracts readable characters
+                const bytes = new Uint8Array(arrayBuffer);
+                docContent = Array.from(bytes)
+                  .map(byte => byte >= 32 && byte < 127 ? String.fromCharCode(byte) : ' ')
+                  .join('');
+              }
+              
+              // Remove any null characters which can cause issues
+              docContent = docContent.replace(/\0/g, '');
+              
+              // Basic cleanup - remove excessive whitespace
+              docContent = docContent.replace(/\s+/g, ' ').trim();
+              
+              console.log(`Document ${doc.id} content extracted from file, size: ${docContent.length} bytes`);
+              if (docContent.length < 50) {
+                console.log(`Warning: Document ${doc.id} has very little content: "${docContent}"`);
+              }
+            } catch (textError) {
+              console.error(`Error extracting text from document ${doc.id}:`, textError);
+              continue;
             }
-            
-            // Remove any null characters which can cause issues
-            docContent = docContent.replace(/\0/g, '');
-            
-            // Basic cleanup - remove excessive whitespace
-            docContent = docContent.replace(/\s+/g, ' ').trim();
-            
-            console.log(`Document ${doc.id} content extracted, size: ${docContent.length} bytes`);
-            if (docContent.length < 50) {
-              console.log(`Warning: Document ${doc.id} has very little content: "${docContent}"`);
-            }
-          } catch (textError) {
-            console.error(`Error extracting text from document ${doc.id}:`, textError);
+          } catch (downloadError) {
+            console.error(`Error downloading document ${doc.id}:`, downloadError);
             continue;
           }
-        } catch (downloadError) {
-          console.error(`Error downloading document ${doc.id}:`, downloadError);
-          continue;
+        } else {
+          console.log(`Using pre-extracted content for document ${doc.id}, size: ${docContent.length} bytes`);
         }
         
         if (!docContent || docContent.length === 0) {
@@ -234,10 +242,10 @@ Include direct quotes or references from the documents where possible to support
       throw new Error('Document not found');
     }
 
-    // Handle the case where document content is not available
+    // First try to use pre-extracted content stored in the content field
     let docContent = document.content;
     if (!docContent || docContent.trim() === '') {
-      console.log("No content found, downloading PDF from storage");
+      console.log("No pre-extracted content found, downloading PDF from storage");
       try {
         const { data: fileData, error: downloadError } = await supabase
           .storage
@@ -283,6 +291,8 @@ Include direct quotes or references from the documents where possible to support
         console.error("Error extracting text from file:", error);
         throw new Error('Error processing document');
       }
+    } else {
+      console.log("Using pre-extracted content from database, length:", docContent.length);
     }
 
     console.log("Document content length:", docContent ? docContent.length : 0, "bytes");
