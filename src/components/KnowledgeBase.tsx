@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { FileText, Upload, Send } from "lucide-react";
 import { uploadPDF, fetchDocuments, processDocument, queryAllDocuments } from '@/utils/pdfUpload';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 
 interface Document {
   id: string;
@@ -24,9 +26,11 @@ export const KnowledgeBase = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
+  const [answerModel, setAnswerModel] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [globalQuestion, setGlobalQuestion] = useState('');
   const [globalAnswer, setGlobalAnswer] = useState('');
+  const [globalAnswerModel, setGlobalAnswerModel] = useState('');
   const [isSearchingAll, setIsSearchingAll] = useState(false);
 
   useEffect(() => {
@@ -75,10 +79,13 @@ export const KnowledgeBase = () => {
     if (!selectedDoc || !question.trim()) return;
 
     setIsAnalyzing(true);
+    setAnswer('');
+    setAnswerModel('');
     try {
       const response = await processDocument(selectedDoc.id, question);
       if (response) {
         setAnswer(response.analysis);
+        setAnswerModel(response.model || 'gpt-4o');
       }
     } catch (error) {
       console.error("Error asking question:", error);
@@ -91,10 +98,13 @@ export const KnowledgeBase = () => {
     if (!globalQuestion.trim()) return;
 
     setIsSearchingAll(true);
+    setGlobalAnswer('');
+    setGlobalAnswerModel('');
     try {
       const response = await queryAllDocuments(globalQuestion);
       if (response) {
         setGlobalAnswer(response.analysis);
+        setGlobalAnswerModel(response.model || 'gpt-4o');
       }
     } catch (error) {
       console.error("Error asking global question:", error);
@@ -170,7 +180,14 @@ export const KnowledgeBase = () => {
               </Button>
               {globalAnswer && (
                 <div className="bg-muted p-4 rounded-lg mt-4">
-                  <h4 className="font-semibold mb-2">Analysis Result</h4>
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-semibold">Analysis Result</h4>
+                    {globalAnswerModel && (
+                      <Badge variant="outline" className="text-xs">
+                        Model: {globalAnswerModel}
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-muted-foreground whitespace-pre-wrap">
                     {globalAnswer}
                   </p>
@@ -219,6 +236,7 @@ export const KnowledgeBase = () => {
                         onClick={() => {
                           setSelectedDoc(doc);
                           setAnswer('');
+                          setAnswerModel('');
                         }}
                       >
                         <CardContent className="p-4">
@@ -291,7 +309,14 @@ export const KnowledgeBase = () => {
                       </Button>
                       {answer && (
                         <div className="bg-muted p-4 rounded-lg mt-4">
-                          <h4 className="font-semibold mb-2">Answer</h4>
+                          <div className="flex justify-between items-center mb-2">
+                            <h4 className="font-semibold">Answer</h4>
+                            {answerModel && (
+                              <Badge variant="outline" className="text-xs">
+                                Model: {answerModel}
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-muted-foreground whitespace-pre-wrap">
                             {answer}
                           </p>

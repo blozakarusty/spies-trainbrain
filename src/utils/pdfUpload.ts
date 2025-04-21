@@ -131,7 +131,7 @@ export async function processDocument(documentId: string, question?: string) {
 
 export async function queryAllDocuments(question: string) {
   try {
-    console.log("Querying across all documents");
+    console.log("Querying across all documents with question:", question);
     // Set a shorter timeout
     const timeoutMs = 20000; // 20 seconds
     
@@ -142,12 +142,11 @@ export async function queryAllDocuments(question: string) {
       }, timeoutMs);
     });
     
-    // Get minimal document metadata to reduce payload size
+    // Get document metadata to prepare for query
     const { data: documents, error: fetchError } = await supabase
       .from('documents')
       .select('id, title, file_path, created_at')
-      .order('created_at', { ascending: false })
-      .limit(1); // Limit to 1 most recent document to reduce memory usage
+      .order('created_at', { ascending: false });
 
     if (fetchError) {
       console.error("Error fetching documents:", fetchError);
@@ -156,9 +155,16 @@ export async function queryAllDocuments(question: string) {
 
     console.log(`Found ${documents.length} documents to search through`);
     
-    // Create actual function call with simplified payload
+    // Only send a limited number of documents to prevent memory issues
+    const limitedDocuments = documents.slice(0, 3); // Limit to 3 most recent documents
+    
+    // Create actual function call with the documents
     const functionPromise = supabase.functions.invoke('process-pdf', {
-      body: { question, documents }
+      body: { 
+        question, 
+        documents: limitedDocuments,
+        model: "gpt-4o" // Explicitly set the model to gpt-4o
+      }
     });
     
     // Use Promise.race to implement timeout
