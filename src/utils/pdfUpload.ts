@@ -84,13 +84,13 @@ export async function processDocument(documentId: string, question?: string) {
   try {
     console.log(`Processing document ${documentId}${question ? ' with question' : ''}`);
     
-    // Shorter timeout for function call
-    const timeoutMs = 15000; // 15 seconds
+    // Set a shorter timeout for function call
+    const timeoutMs = 20000; // 20 seconds
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("Processing timed out after 15 seconds"));
+        reject(new Error("Processing timed out after 20 seconds"));
       }, timeoutMs);
     });
     
@@ -133,12 +133,12 @@ export async function queryAllDocuments(question: string) {
   try {
     console.log("Querying across all documents");
     // Set a shorter timeout
-    const timeoutMs = 15000; // 15 seconds
+    const timeoutMs = 20000; // 20 seconds
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("Query timed out after 15 seconds"));
+        reject(new Error("Query timed out after 20 seconds"));
       }, timeoutMs);
     });
     
@@ -147,7 +147,7 @@ export async function queryAllDocuments(question: string) {
       .from('documents')
       .select('id, title, file_path, created_at')
       .order('created_at', { ascending: false })
-      .limit(5); // Limit to 5 most recent documents
+      .limit(1); // Limit to 1 most recent document to reduce memory usage
 
     if (fetchError) {
       console.error("Error fetching documents:", fetchError);

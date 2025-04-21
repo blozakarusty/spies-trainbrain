@@ -9,9 +9,9 @@ const corsHeaders = {
 };
 
 // Reduced chunk size to prevent memory issues
-const CHUNK_SIZE = 3000;
-const MAX_CHUNKS_PER_ANALYSIS = 2; // Reduced to 2 chunks
-const MAX_DOCUMENT_SAMPLE = 2; // Reduced sample size
+const CHUNK_SIZE = 2500;
+const MAX_CHUNKS_PER_ANALYSIS = 1; // Just use one chunk
+const MAX_DOCUMENT_SAMPLE = 1; // Only process one document at a time
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -35,13 +35,13 @@ serve(async (req) => {
     if (documents) {
       console.log("Processing cross-document search for query:", question);
       
-      // Take smaller sample of documents
+      // Take only one document to reduce memory usage
       const documentSample = documents.slice(0, MAX_DOCUMENT_SAMPLE);
       console.log(`Processing ${documentSample.length} documents (sample from ${documents.length} total)`);
       
-      const relevantContentChunks = [];
+      let combinedContent = "";
       
-      // Process each document to find relevant content
+      // Process just one document to find relevant content
       for (const doc of documentSample) {
         console.log(`Processing document: ${doc.id} - ${doc.title}`);
         
@@ -66,22 +66,7 @@ serve(async (req) => {
               docContent = await fileData.text();
               console.log(`Downloaded content for document ${doc.id}, size: ${docContent.length} bytes`);
               
-              // Update document content in database in background, but don't wait for it
-              if (docContent.length > 0) {
-                try {
-                  // Don't use await here to avoid blocking
-                  supabase
-                    .from('documents')
-                    .update({ content: docContent })
-                    .eq('id', doc.id)
-                    .then(({ error }) => {
-                      if (error) console.error(`Error updating document ${doc.id} content:`, error);
-                      else console.log(`Updated content for document ${doc.id} in database`);
-                    });
-                } catch (updateError) {
-                  console.error(`Exception updating document ${doc.id} content:`, updateError);
-                }
-              }
+              // Skip updating the database to save memory
             } catch (textError) {
               console.error(`Error extracting text from document ${doc.id}:`, textError);
               continue;
@@ -99,48 +84,24 @@ serve(async (req) => {
         
         console.log(`Document ${doc.id} content length: ${docContent.length} bytes`);
         
-        // Handle very large documents by taking just the beginning
-        if (docContent.length > 20000) {
-          console.log(`Document ${doc.id} is very large, truncating to first 20000 bytes`);
-          docContent = docContent.substring(0, 20000);
+        // Handle large documents by taking just the beginning
+        if (docContent.length > 5000) {
+          console.log(`Document ${doc.id} is large, truncating to first 5000 bytes`);
+          docContent = docContent.substring(0, 5000);
         }
         
-        // Split content into smaller chunks
-        const chunks = chunkText(docContent, CHUNK_SIZE);
-        console.log(`Document ${doc.id} split into ${chunks.length} chunks`);
-        
-        // Always include the first chunk (introduction) for context
-        if (chunks.length > 0) {
-          console.log(`Adding first chunk from document ${doc.id} (introduction)`);
-          relevantContentChunks.push(`Document "${doc.title}" (introduction):\n${chunks[0].substring(0, 1000)}`);
-        }
-        
-        // Only process one more additional chunk to save memory
-        if (chunks.length > 1) {
-          console.log(`Adding second chunk from document ${doc.id}`);
-          relevantContentChunks.push(`Document "${doc.title}" (continued):\n${chunks[1].substring(0, 1000)}`);
-        }
-        
-        // If we have enough content, stop processing more documents
-        if (relevantContentChunks.length >= 3) {
-          console.log("Reached maximum relevant chunks across documents, stopping document processing");
-          break;
-        }
+        combinedContent += `Document "${doc.title}":\n${docContent}\n\n`;
       }
       
-      console.log("Content chunks collected:", relevantContentChunks.length);
-      
-      // If no relevant chunks found, but we have documents, include some content anyway
-      if (relevantContentChunks.length === 0 && documentSample.length > 0) {
-        console.log("No chunks found, using first parts of documents anyway");
-        for (const doc of documentSample.slice(0, 1)) {
-          if (doc.content && doc.content.length > 0) {
-            relevantContentChunks.push(`Document "${doc.title}" (sample):\n${doc.content.substring(0, 1000)}`);
-          }
-        }
+      // Enforce a hard limit on content size
+      if (combinedContent.length > 3000) {
+        console.log("Combined content too large, truncating to 3000 characters");
+        combinedContent = combinedContent.substring(0, 3000);
       }
       
-      if (relevantContentChunks.length === 0) {
+      console.log("Final combined content size:", combinedContent.length, "bytes");
+
+      if (combinedContent.length === 0) {
         console.log("No content available in any document");
         return new Response(JSON.stringify({ 
           analysis: "I wasn't able to find any information in the available documents to answer your question." 
@@ -148,19 +109,8 @@ serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      
-      // Combine relevant chunks but strictly limit total size
-      let combinedContent = relevantContentChunks.join('\n\n');
-      
-      // Enforce a hard limit on content size
-      if (combinedContent.length > 6000) {
-        console.log("Combined content too large, truncating to 6000 characters");
-        combinedContent = combinedContent.substring(0, 6000);
-      }
-      
-      console.log("Final combined content size:", combinedContent.length, "bytes");
 
-      const prompt = `Question: "${question}"\n\nDocuments Content:\n${combinedContent}\n\nBased on ONLY the content from these documents, provide a concise answer to the question. If you cannot find sufficient information to answer with confidence, clearly state this. Do not make up information that isn't present in the documents.`;
+      const prompt = `Question: "${question}"\n\nDocuments Content:\n${combinedContent}\n\nBased only on the content from these documents, provide a concise answer to the question. If the information isn't in the documents, clearly state this fact.`;
 
       console.log("Sending request to OpenAI with prompt size:", prompt.length, "bytes");
       try {
@@ -171,7 +121,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: 'gpt-4o', // Changed to gpt-4o
             messages: [
               {
                 role: 'system',
@@ -183,7 +133,7 @@ serve(async (req) => {
               }
             ],
             max_tokens: 500,
-            temperature: 0.3
+            temperature: 0.1
           }),
         });
 
@@ -241,26 +191,8 @@ serve(async (req) => {
         try {
           docContent = await fileData.text();
           console.log("Extracted text from PDF, length:", docContent.length);
-
-          // Update document with content in background - don't block
-          if (docContent.length > 0) {
-            try {
-              // Don't use await here - fire and forget
-              supabase
-                .from('documents')
-                .update({ content: docContent })
-                .eq('id', documentId)
-                .then(({ error }) => {
-                  if (error) {
-                    console.error("Document update error:", error);
-                  } else {
-                    console.log("Updated document content in database");
-                  }
-                });
-            } catch (updateError) {
-              console.error("Exception updating document content:", updateError);
-            }
-          }
+          
+          // Skip updating in database to prevent memory issues
         } catch (textError) {
           console.error("Error parsing text from file:", textError);
           docContent = ""; // Set to empty string to prevent undefined errors
@@ -283,79 +215,18 @@ serve(async (req) => {
       });
     }
 
-    // Limit very large documents
-    if (docContent.length > 20000) {
-      console.log("Document is very large, truncating to first 20000 bytes");
-      docContent = docContent.substring(0, 20000);
+    // Limit document size to prevent memory issues
+    if (docContent.length > 5000) {
+      console.log("Document is large, truncating to first 5000 bytes");
+      docContent = docContent.substring(0, 5000);
     }
 
     // Process document content in chunks
-    const chunks = chunkText(docContent, CHUNK_SIZE);
-    console.log(`Document split into ${chunks.length} chunks for processing`);
-    
-    // If there's a specific question, process it
+    // For specific question about a document
     if (question) {
       console.log("Question content:", question);
       
-      // For small documents, just use the content directly
-      if (docContent.length < CHUNK_SIZE * 2) {
-        console.log("Document is small, using entire content");
-        
-        const prompt = `Document content:\n${docContent}\n\nQuestion: "${question}"\n\nBased ONLY on the document content, please provide a concise answer to this question. If you cannot find the information in the document, clearly state this fact.`;
-
-        console.log("Sending request to OpenAI with prompt size:", prompt.length, "bytes");
-        try {
-          const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [
-                {
-                  role: 'system',
-                  content: 'You are an AI assistant that analyzes documents and answers questions about them. Provide clear, concise, and accurate responses based only on the document content. If information is not available in the document, clearly state this fact.'
-                },
-                {
-                  role: 'user',
-                  content: prompt
-                }
-              ],
-              max_tokens: 500,
-              temperature: 0.3
-            }),
-          });
-
-          if (!openAIResponse.ok) {
-            const errorData = await openAIResponse.text();
-            console.error("OpenAI API error:", errorData);
-            throw new Error(`OpenAI API error: ${openAIResponse.status} ${errorData}`);
-          }
-
-          const analysisData = await openAIResponse.json();
-          const analysis = analysisData.choices[0].message.content;
-          console.log("Received analysis from OpenAI, length:", analysis.length);
-
-          return new Response(JSON.stringify({ analysis }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        } catch (openAIError) {
-          console.error("Error calling OpenAI API:", openAIError);
-          return new Response(JSON.stringify({ 
-            analysis: "I encountered an error processing your question. Please try again with a simpler query." 
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-      }
-      
-      // For larger documents, just use the first couple chunks
-      const contentForAnalysis = chunks.slice(0, 2).join('\n\n');
-      console.log("Using first two chunks for analysis, length:", contentForAnalysis.length);
-      
-      const prompt = `Document content:\n${contentForAnalysis}\n\nQuestion: "${question}"\n\nBased ONLY on the document content, please provide a concise answer to this question. If you cannot find the information in the document, clearly state this fact.`;
+      const prompt = `Document content:\n${docContent}\n\nQuestion: "${question}"\n\nBased ONLY on the document content, please provide a concise answer to this question. If you cannot find the information in the document, clearly state this fact.`;
 
       console.log("Sending request to OpenAI with prompt size:", prompt.length, "bytes");
       try {
@@ -366,7 +237,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: 'gpt-4o', // Changed to gpt-4o
             messages: [
               {
                 role: 'system',
@@ -378,7 +249,7 @@ serve(async (req) => {
               }
             ],
             max_tokens: 500,
-            temperature: 0.3
+            temperature: 0.1
           }),
         });
 
@@ -405,8 +276,8 @@ serve(async (req) => {
       }
     } else {
       // General analysis for document summary
-      // Only use first chunk to prevent memory issues
-      const summaryContent = chunks.length > 0 ? chunks[0] : "";
+      // Ensure we're only using a small amount of content
+      const summaryContent = docContent.substring(0, 3000);
       
       console.log("Generating summary with content length:", summaryContent.length, "bytes");
       
@@ -421,7 +292,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: 'gpt-4o', // Changed to gpt-4o
             messages: [
               {
                 role: 'system',
@@ -433,7 +304,7 @@ serve(async (req) => {
               }
             ],
             max_tokens: 500,
-            temperature: 0.3
+            temperature: 0.1
           }),
         });
 
@@ -447,21 +318,19 @@ serve(async (req) => {
         const analysis = analysisData.choices[0].message.content;
         console.log("Received summary from OpenAI, length:", analysis.length);
 
-        // Store the analysis in a background operation
-        console.log("Storing analysis in database");
+        // Store the analysis in a background operation - add this in a separate try/catch
         try {
-          // Don't await this operation
-          supabase
+          console.log("Storing analysis in database");
+          const { error: updateError } = await supabase
             .from('documents')
             .update({ analysis })
-            .eq('id', documentId)
-            .then(({ error }) => {
-              if (error) {
-                console.error("Error updating document analysis:", error);
-              } else {
-                console.log("Updated document analysis in database successfully");
-              }
-            });
+            .eq('id', documentId);
+            
+          if (updateError) {
+            console.error("Error updating document analysis:", updateError);
+          } else {
+            console.log("Updated document analysis in database successfully");
+          }
         } catch (updateError) {
           console.error("Exception updating document analysis:", updateError);
         }
