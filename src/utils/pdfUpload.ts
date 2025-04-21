@@ -84,19 +84,24 @@ export async function processDocument(documentId: string, question?: string) {
   try {
     console.log(`Processing document ${documentId}${question ? ' with question' : ''}`);
     
-    // Set a shorter timeout for function call
-    const timeoutMs = 20000; // 20 seconds
+    // Set a longer timeout for function call to allow for processing
+    const timeoutMs = 30000; // 30 seconds timeout
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("Processing timed out after 20 seconds"));
+        reject(new Error("Processing timed out after 30 seconds"));
       }, timeoutMs);
     });
     
     // Actual function call with minimal payload
     const functionPromise = supabase.functions.invoke('process-pdf', {
-      body: { documentId, question }
+      body: { 
+        documentId, 
+        question,
+        model: "gpt-4o", // Explicitly specify the model to ensure GPT-4o is used
+        includeFullContent: true // Flag to request full document content
+      }
     });
     
     // Use Promise.race to implement timeout
@@ -132,13 +137,13 @@ export async function processDocument(documentId: string, question?: string) {
 export async function queryAllDocuments(question: string) {
   try {
     console.log("Querying across all documents with question:", question);
-    // Set a shorter timeout
-    const timeoutMs = 20000; // 20 seconds
+    // Set a longer timeout
+    const timeoutMs = 30000; // 30 seconds timeout
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("Query timed out after 20 seconds"));
+        reject(new Error("Query timed out after 30 seconds"));
       }, timeoutMs);
     });
     
@@ -163,7 +168,9 @@ export async function queryAllDocuments(question: string) {
       body: { 
         question, 
         documents: limitedDocuments,
-        model: "gpt-4o" // Explicitly set the model to gpt-4o
+        model: "gpt-4o", // Explicitly set the model to gpt-4o
+        includeFullContent: true, // Flag to request full document content
+        debug: true // Enable debug mode for detailed processing logs
       }
     });
     
