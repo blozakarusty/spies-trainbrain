@@ -112,12 +112,67 @@ export async function uploadPDF(file: File): Promise<UploadResult | null> {
 
 export async function fetchDocuments() {
   console.log("Fetching documents from database");
-  const { data, error } = await supabase
-    .from('documents')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) {
+  
+  try {
+    // First, get all files from storage bucket
+    const { data: storageFiles, error: storageError } = await supabase.storage
+      .from('documents')
+      .list();
+    
+    if (storageError) {
+      console.error("Storage fetch error:", storageError);
+      throw storageError;
+    }
+    
+    // Get file paths that exist in storage
+    const validFilePaths = new Set(storageFiles.map(file => file.name));
+    console.log(`Found ${validFilePaths.size} files in storage`);
+    
+    // Get all documents from database
+    const { data: dbRecords, error: dbError } = await supabase
+      .from('documents')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (dbError) {
+      console.error("Database fetch error:", dbError);
+      throw dbError;
+    }
+    
+    console.log(`Found ${dbRecords ? dbRecords.length : 0} records in database`);
+    
+    // Filter out database records that don't have corresponding storage files
+    const validDocuments = dbRecords ? dbRecords.filter(doc => validFilePaths.has(doc.file_path)) : [];
+    
+    // Clean up orphaned database records (those without files in storage)
+    const orphanedRecords = dbRecords ? dbRecords.filter(doc => !validFilePaths.has(doc.file_path)) : [];
+    
+    if (orphanedRecords.length > 0) {
+      console.log(`Found ${orphanedRecords.length} orphaned database records without files in storage. Cleaning up...`);
+      
+      // Delete orphaned records from database
+      for (const record of orphanedRecords) {
+        const { error: deleteError } = await supabase
+          .from('documents')
+          .delete()
+          .eq('id', record.id);
+        
+        if (deleteError) {
+          console.error(`Error deleting orphaned record ${record.id}:`, deleteError);
+        } else {
+          console.log(`Deleted orphaned record ${record.id}`);
+        }
+      }
+      
+      toast({
+        title: "Documents Synchronized",
+        description: `Removed ${orphanedRecords.length} document records that no longer exist in storage.`
+      });
+    }
+    
+    console.log(`Returning ${validDocuments.length} valid documents`);
+    return validDocuments;
+  } catch (error: any) {
     console.error("Document fetch error:", error);
     toast({
       title: "Error Fetching Documents",
@@ -126,9 +181,6 @@ export async function fetchDocuments() {
     });
     return [];
   }
-
-  console.log("Documents fetched:", data ? data.length : 0);
-  return data;
 }
 
 export async function deleteDocument(documentId: string, filePath: string) {
